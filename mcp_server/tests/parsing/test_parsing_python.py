@@ -75,6 +75,7 @@ def test_extracts_every_symbol_of_the_sample_repo(symbols: dict[str, GetSymbolOu
         "mylib.client.connect": SymbolKind.FUNCTION,
         "mylib.client.ping": SymbolKind.FUNCTION,
         "mylib.client._helper": SymbolKind.FUNCTION,
+        "mylib.client.Undocumented": SymbolKind.CLASS,
         "mylib.legacy": SymbolKind.MODULE,
         "mylib.legacy.mean": SymbolKind.FUNCTION,
     }

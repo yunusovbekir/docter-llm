@@ -1,0 +1,3 @@
+site_name: mylib
+nav:
+  - Home: index.md

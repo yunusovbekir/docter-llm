@@ -8,7 +8,11 @@ dependencies = [
     "docter-contract",
     "mcp>=2.3.0",
     "pydantic>=2.14.3",
+    "pyyaml>=6.0",
 ]
+
+[project.scripts]
+docter-mcp = "docter_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]

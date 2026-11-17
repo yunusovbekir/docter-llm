@@ -137,3 +137,7 @@ def ping(host, timeout=None):
 
 def _helper() -> None:
     """Private helper."""
+
+
+class Undocumented:
+    pass
