@@ -4,14 +4,8 @@ import yaml
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 
 from docter_contract import ErrorCode, glossary_uri
+from docter_mcp.config import Config
 from docter_mcp.sandbox import Sandbox, fail
-
-DEFAULT_STYLE_GUIDE = """# Documentation style
-
-Use the project's existing docstring convention and terminology.
-Describe public parameters, return values, and directly raised exceptions.
-Keep examples concise and accurate. Do not invent behavior or reference missing symbols.
-"""
 
 
 def style_guide(sandbox: Sandbox) -> str:
@@ -21,7 +15,7 @@ def style_guide(sandbox: Sandbox) -> str:
     except ToolError as exc:
         # A directory, unreadable file or invalid UTF-8 is not a missing style guide.
         if not sandbox.exists(".docter/style.md"):
-            return DEFAULT_STYLE_GUIDE
+            return Config.DEFAULT_STYLE_GUIDE
         raise ResourceError(str(exc)) from exc
 
 

@@ -6,8 +6,8 @@ import time
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from backend.config import Settings
 from backend.models.settings import (
-    SETTINGS_ROW_ID,
     AppSettings,
     ConnectionTestResult,
     SettingsRead,
@@ -16,9 +16,6 @@ from backend.models.settings import (
 from backend.services.secrets import ApiKeyStore
 
 logger = logging.getLogger(__name__)
-
-CONNECTION_TEST_TIMEOUT_S = 15.0
-_MAX_ERROR_LENGTH = 500
 
 
 class SettingsService:
@@ -34,7 +31,7 @@ class SettingsService:
 
     async def update(self, data: SettingsUpdate) -> SettingsRead:
         """Apply the fields set in ``data`` and store or delete the API key."""
-        row = await self._session.get(AppSettings, SETTINGS_ROW_ID)
+        row = await self._session.get(AppSettings, Settings.SETTINGS_ROW_ID)
         if row is None:
             row = AppSettings()
             self._session.add(row)
@@ -63,13 +60,13 @@ class SettingsService:
 
         started = time.perf_counter()
         try:
-            async with asyncio.timeout(CONNECTION_TEST_TIMEOUT_S):
+            async with asyncio.timeout(Settings.CONNECTION_TEST_TIMEOUT_S):
                 await litellm.acompletion(
                     model=row.model,
                     custom_llm_provider=row.provider,
                     messages=[{"role": "user", "content": "ping"}],
                     max_tokens=1,
-                    timeout=CONNECTION_TEST_TIMEOUT_S,
+                    timeout=Settings.CONNECTION_TEST_TIMEOUT_S,
                     api_key=api_key,
                     base_url=row.base_url,
                 )
@@ -77,7 +74,7 @@ class SettingsService:
             return ConnectionTestResult(
                 ok=False,
                 latency_ms=None,
-                error=f"Timed out after {CONNECTION_TEST_TIMEOUT_S:g}s",
+                error=f"Timed out after {Settings.CONNECTION_TEST_TIMEOUT_S:g}s",
             )
         except Exception as exc:
             logger.info(
@@ -90,7 +87,7 @@ class SettingsService:
         return ConnectionTestResult(ok=True, latency_ms=latency_ms, error=None)
 
     async def _load(self) -> AppSettings:
-        return await self._session.get(AppSettings, SETTINGS_ROW_ID) or AppSettings()
+        return await self._session.get(AppSettings, Settings.SETTINGS_ROW_ID) or AppSettings()
 
     async def _to_read(self, row: AppSettings) -> SettingsRead:
         return SettingsRead(
@@ -108,4 +105,4 @@ def _safe_error_message(exc: Exception, api_key: str | None) -> str:
     message = str(exc) or type(exc).__name__
     if api_key:
         message = message.replace(api_key, "***")
-    return message[:_MAX_ERROR_LENGTH]
+    return message[: Settings.MAX_ERROR_LENGTH]

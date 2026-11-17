@@ -9,16 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from backend.config import Settings
 from backend.errors import DocterError
 from backend.git.repository import RepositoryInfo, inspect_repository
 from backend.models.project import Project, ProjectCreated, ProjectRead
 
 logger = logging.getLogger(__name__)
-
-DIRTY_WARNING = (
-    "The working tree has uncommitted changes. Docter only commits to its own branch, "
-    "but you may want to commit or stash these changes first."
-)
 
 
 class InvalidProjectPathError(DocterError):
@@ -83,7 +79,7 @@ class ProjectService:
         return ProjectCreated(
             **ProjectRead.model_validate(project).model_dump(),
             is_dirty=info.is_dirty,
-            warnings=[DIRTY_WARNING] if info.is_dirty else [],
+            warnings=[Settings.DIRTY_WARNING] if info.is_dirty else [],
         )
 
     async def list_all(self) -> Sequence[ProjectRead]:

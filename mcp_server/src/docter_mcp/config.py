@@ -4,11 +4,26 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
+
+from docter_contract import ToolName
 
 
 @dataclass(frozen=True, slots=True)
 class Config:
     """Server settings; construction does not create directories or write files."""
+
+    TOOL_NAMES: ClassVar[tuple[ToolName, ...]] = (
+        ToolName.GET_SERVER_INFO,
+        ToolName.READ_FILE,
+        ToolName.LIST_DOC_FILES,
+    )
+    DEFAULT_STYLE_GUIDE: ClassVar[str] = """# Documentation style
+
+Use the project's existing docstring convention and terminology.
+Describe public parameters, return values, and directly raised exceptions.
+Keep examples concise and accurate. Do not invent behavior or reference missing symbols.
+"""
 
     index_dir: Path = Path.home() / ".docter" / "index"
     allowed_roots: tuple[Path, ...] = ()

@@ -54,3 +54,17 @@ def test_mcp_command_from_env_is_split_shell_style(
 def test_mcp_command_rejects_invalid_values(data_dir: Path, command: str) -> None:
     with pytest.raises(ValidationError):
         Settings(mcp_command=command)
+
+
+def test_fixed_configuration_is_not_loaded_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DOCTER_DEFAULT_MODEL", "not-a-runtime-setting")
+    monkeypatch.setenv("DOCTER_CONNECTION_TEST_TIMEOUT_S", "0.01")
+
+    settings = Settings()
+
+    assert settings.DEFAULT_MODEL == "gpt-4o-mini"
+    assert settings.CONNECTION_TEST_TIMEOUT_S == 15.0
+    assert not any(name.isupper() for name in Settings.model_fields)
+    assert "DEFAULT_MODEL" not in settings.model_dump()

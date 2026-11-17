@@ -4,7 +4,8 @@ import keyring
 import pytest
 from keyring.backends.fail import Keyring as FailKeyring
 
-from backend.services.secrets import KEYRING_SERVICE, ApiKeyStore, KeyringUnavailableError
+from backend.config import Settings
+from backend.services.secrets import ApiKeyStore, KeyringUnavailableError
 from backend.tests.fakes import InMemoryKeyring
 
 
@@ -21,7 +22,7 @@ async def test_set_get_and_delete_use_docter_service_and_provider_username(
 
     await store.set("openai", "sk-test")
 
-    assert memory_keyring.passwords == {(KEYRING_SERVICE, "openai"): "sk-test"}
+    assert memory_keyring.passwords == {(Settings.KEYRING_SERVICE, "openai"): "sk-test"}
     assert await store.get("openai") == "sk-test"
     assert await store.has("openai")
     assert not await store.has("anthropic")

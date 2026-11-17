@@ -20,8 +20,6 @@ from backend.static import SPAStaticFiles
 
 logger = logging.getLogger(__name__)
 
-MCP_SERVER_LOG_NAME = "mcp-server.log"
-
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the Docter FastAPI application.
@@ -41,7 +39,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessionmaker = create_sessionmaker(engine)
         mcp = MCPManager(
             resolved.mcp_command_args,
-            errlog_path=resolved.logs_dir / MCP_SERVER_LOG_NAME,
+            errlog_path=resolved.logs_dir / resolved.MCP_SERVER_LOG_NAME,
         )
         app.state.mcp = mcp
         logger.info("Docter started (data_dir=%s)", resolved.data_dir)

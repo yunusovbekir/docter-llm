@@ -3,33 +3,11 @@
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 
 from docstring_parser import Docstring, ParseError, parse
-from docstring_parser import DocstringStyle as _LibraryStyle
 
-
-class DocstringStyle(StrEnum):
-    """A docstring convention with structured sections."""
-
-    GOOGLE = "google"
-    NUMPY = "numpy"
-    REST = "rest"
-
-
-DEFAULT_STYLE = DocstringStyle.GOOGLE
-"""Style assumed when a project has no structured docstrings yet."""
-
-# Iteration order is also the tie-break order.
-_LIBRARY_STYLES = {
-    DocstringStyle.GOOGLE: _LibraryStyle.GOOGLE,
-    DocstringStyle.NUMPY: _LibraryStyle.NUMPYDOC,
-    DocstringStyle.REST: _LibraryStyle.REST,
-}
-# Section keys docstring_parser uses for parameters ("attribute" and "receives" are not).
-_PARAM_KEYS = frozenset({"param", "parameter", "arg", "argument", "key", "keyword", "other_param"})
-# Section keys for exceptions; numpy "Warns" sections are excluded.
-_RAISES_KEYS = frozenset({"raises", "raise", "except", "exception"})
+from docter_mcp.parsing.config import DocstringStyle as DocstringStyle
+from docter_mcp.parsing.config import ParsingSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +50,7 @@ def detect_style(docstrings: Iterable[str | None]) -> DocstringStyle:
 
     Each docstring votes for the style that recognizes the most sections in it; docstrings
     without sections do not vote. Ties go to google, then numpy, then rest. Returns
-    ``DEFAULT_STYLE`` if nothing votes.
+    ``ParsingSettings.DEFAULT_STYLE`` if nothing votes.
     """
     votes: Counter[DocstringStyle] = Counter()
     for text in docstrings:
@@ -81,8 +59,8 @@ def detect_style(docstrings: Iterable[str | None]) -> DocstringStyle:
             if style is not None:
                 votes[style] += 1
     if not votes:
-        return DEFAULT_STYLE
-    return max(_LIBRARY_STYLES, key=lambda style: votes[style])
+        return ParsingSettings.DEFAULT_STYLE
+    return max(ParsingSettings.LIBRARY_STYLES, key=lambda style: votes[style])
 
 
 def parse_docstring(text: str, style: DocstringStyle) -> ParsedDocstring:
@@ -96,7 +74,7 @@ def parse_docstring(text: str, style: DocstringStyle) -> ParsedDocstring:
     params = tuple(
         DocParam(name=meta.arg_name, type_name=meta.type_name, description=meta.description)
         for meta in doc.params
-        if meta.args and meta.args[0] in _PARAM_KEYS
+        if meta.args and meta.args[0] in ParsingSettings.PARAM_KEYS
     )
     returns = next(
         (
@@ -109,7 +87,7 @@ def parse_docstring(text: str, style: DocstringStyle) -> ParsedDocstring:
     raises = tuple(
         DocRaises(type_name=meta.type_name, description=meta.description)
         for meta in doc.raises
-        if meta.args and meta.args[0] in _RAISES_KEYS
+        if meta.args and meta.args[0] in ParsingSettings.RAISES_KEYS
     )
     return ParsedDocstring(style=style, params=params, returns=returns, raises=raises)
 
@@ -117,7 +95,7 @@ def parse_docstring(text: str, style: DocstringStyle) -> ParsedDocstring:
 def _best_style(text: str) -> DocstringStyle | None:
     best: DocstringStyle | None = None
     best_score = 0
-    for style in _LIBRARY_STYLES:
+    for style in ParsingSettings.LIBRARY_STYLES:
         doc = _parse(text, style)
         score = len(doc.meta) if doc is not None else 0
         if score > best_score:
@@ -127,6 +105,6 @@ def _best_style(text: str) -> DocstringStyle | None:
 
 def _parse(text: str, style: DocstringStyle) -> Docstring | None:
     try:
-        return parse(text, _LIBRARY_STYLES[style])
+        return parse(text, ParsingSettings.LIBRARY_STYLES[style])
     except ParseError:
         return None

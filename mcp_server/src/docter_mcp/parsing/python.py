@@ -1,23 +1,15 @@
 """Extract Python symbols with the standard library ``ast`` module."""
 
 import ast
-import re
 import warnings
 from collections.abc import Iterator, Sequence
 from pathlib import PurePosixPath
 
 from docter_contract import GetSymbolOutput, ParameterKind, SymbolKind, SymbolParameter
 from docter_mcp.parsing.base import ParseResult, ParseWarning
+from docter_mcp.parsing.config import ParsingSettings
 
 type _Definition = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
-
-_DEFINITION_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-_SCOPE_TYPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
-_PROPERTY_DECORATORS = frozenset({"property", "cached_property", "functools.cached_property"})
-_PROPERTY_ACCESSORS = frozenset({"getter", "setter", "deleter"})
-_INSTANCE_NAMES = frozenset({"self", "cls"})
-# Same line breaks as the ast module: \r\n, \r, and \n (but not \f or Unicode separators).
-_LINE_PATTERN = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$")
 
 
 def module_name(path: str) -> str:
@@ -80,7 +72,7 @@ class _Extractor:
     def __init__(self, path: str, source: str) -> None:
         self._path = path
         self._source = source
-        self._lines: list[str] = _LINE_PATTERN.findall(source)
+        self._lines: list[str] = ParsingSettings.LINE_PATTERN.findall(source)
         self._symbols: dict[str, GetSymbolOutput] = {}
 
     def extract(self, tree: ast.Module) -> list[GetSymbolOutput]:
@@ -282,7 +274,7 @@ def format_parameters(parameters: Sequence[SymbolParameter]) -> str:
 def _definitions(body: Sequence[ast.stmt]) -> Iterator[_Definition]:
     """Yield the classes and functions of a block, including those in if/try/with blocks."""
     for statement in body:
-        if isinstance(statement, _DEFINITION_TYPES):
+        if isinstance(statement, ParsingSettings.DEFINITION_TYPES):
             yield statement
         elif isinstance(statement, ast.If):
             yield from _definitions(statement.body)
@@ -344,14 +336,14 @@ def _string_literals(node: ast.expr) -> list[str] | None:
 
 
 def _is_property(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    return any(_dotted_name(d) in _PROPERTY_DECORATORS for d in node.decorator_list)
+    return any(_dotted_name(d) in ParsingSettings.PROPERTY_DECORATORS for d in node.decorator_list)
 
 
 def _is_property_accessor(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     """Whether the function is a ``@<name>.setter``, ``.getter``, or ``.deleter``."""
     return any(
         isinstance(d, ast.Attribute)
-        and d.attr in _PROPERTY_ACCESSORS
+        and d.attr in ParsingSettings.PROPERTY_ACCESSORS
         and isinstance(d.value, ast.Name)
         and d.value.id == node.name
         for d in node.decorator_list
@@ -372,7 +364,11 @@ def _raised_names(body: Sequence[ast.stmt]) -> list[str]:
             continue
         target = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
         name = _dotted_name(target)
-        if name is None or name in aliases or name.split(".", 1)[0] in _INSTANCE_NAMES:
+        if (
+            name is None
+            or name in aliases
+            or name.split(".", 1)[0] in ParsingSettings.INSTANCE_NAMES
+        ):
             continue
         names[name] = None
     return list(names)
@@ -380,11 +376,15 @@ def _raised_names(body: Sequence[ast.stmt]) -> list[str]:
 
 def _scope_walk(body: Sequence[ast.stmt]) -> Iterator[ast.AST]:
     """Walk a block in source order without descending into nested scopes."""
-    stack: list[ast.AST] = [s for s in reversed(body) if not isinstance(s, _SCOPE_TYPES)]
+    stack: list[ast.AST] = [
+        s for s in reversed(body) if not isinstance(s, ParsingSettings.SCOPE_TYPES)
+    ]
     while stack:
         node = stack.pop()
         yield node
-        children = [c for c in ast.iter_child_nodes(node) if not isinstance(c, _SCOPE_TYPES)]
+        children = [
+            c for c in ast.iter_child_nodes(node) if not isinstance(c, ParsingSettings.SCOPE_TYPES)
+        ]
         stack.extend(reversed(children))
 
 

@@ -21,6 +21,11 @@ Repositories must be Git working-tree roots, not arbitrary subdirectories.
 
 ## Configuration
 
+Server defaults and capabilities live on `Config` in `docter_mcp.config`. Shared parser
+conventions and the default docstring style live on `ParsingSettings` in
+`docter_mcp.parsing.config`. Fixed values are class attributes, not module-level variables.
+The shared contract's immutable protocol definitions remain unchanged.
+
 | Environment variable | Default | Meaning |
 |---|---|---|
 | `DOCTER_INDEX_DIR` | `~/.docter/index` | Reserved index storage location; M2 does not create it. |

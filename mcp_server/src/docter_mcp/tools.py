@@ -17,12 +17,9 @@ from docter_contract import (
     ReadFileInput,
     ReadFileOutput,
     ServerCapabilities,
-    ToolName,
 )
 from docter_mcp.config import Config
 from docter_mcp.sandbox import Sandbox
-
-TOOL_NAMES = (ToolName.GET_SERVER_INFO, ToolName.READ_FILE, ToolName.LIST_DOC_FILES)
 
 
 def get_server_info(request: GetServerInfoInput, config: Config) -> GetServerInfoOutput:
@@ -31,7 +28,7 @@ def get_server_info(request: GetServerInfoInput, config: Config) -> GetServerInf
         contract_version=CONTRACT_VERSION,
         server_version=version("docter-mcp"),
         capabilities=ServerCapabilities(
-            tools=list(TOOL_NAMES),
+            tools=list(config.TOOL_NAMES),
             resources=list(RESOURCE_URIS),
             # M2 cannot execute code, even when execution has been permitted in config.
             execution_enabled=False,

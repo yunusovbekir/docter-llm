@@ -16,7 +16,6 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, TextIO
 
-import anyio
 from mcp import ClientSession, StdioServerParameters, stdio_client
 from mcp import types as mcp_types
 from mcp.client.session import SamplingFnT
@@ -25,18 +24,13 @@ from mcp.shared.exceptions import MCPError as SDKMCPError
 from mcp.types.jsonrpc import CONNECTION_CLOSED, REQUEST_TIMEOUT
 from pydantic import BaseModel, ConfigDict
 
+from backend.config import Settings
 from backend.errors import DocterError
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STARTUP_TIMEOUT_S = 30.0
-DEFAULT_REQUEST_TIMEOUT_S = 60.0
-SHUTDOWN_TIMEOUT_S = 10.0
-
 ProgressCallback = ProgressFnT
 SamplingCallback = SamplingFnT
-
-_CONNECTION_LOST_ERRORS = (anyio.ClosedResourceError, anyio.BrokenResourceError, anyio.EndOfStream)
 
 
 class MCPError(DocterError):
@@ -79,7 +73,7 @@ class MCPManager:
         env: Mapping[str, str] | None = None,
         errlog_path: Path | None = None,
         sampling_callback: SamplingCallback | None = None,
-        startup_timeout: float = DEFAULT_STARTUP_TIMEOUT_S,
+        startup_timeout: float = Settings.DEFAULT_STARTUP_TIMEOUT_S,
     ) -> None:
         """Configure the manager without starting the server.
 
@@ -222,7 +216,7 @@ class MCPManager:
                     ClientSession(
                         read,
                         write,
-                        read_timeout_seconds=DEFAULT_REQUEST_TIMEOUT_S,
+                        read_timeout_seconds=Settings.DEFAULT_REQUEST_TIMEOUT_S,
                         sampling_callback=self._sampling_callback,
                     )
                 )
@@ -243,10 +237,12 @@ class MCPManager:
             return
         stop.set()
         try:
-            async with asyncio.timeout(SHUTDOWN_TIMEOUT_S):
+            async with asyncio.timeout(Settings.SHUTDOWN_TIMEOUT_S):
                 await asyncio.shield(runner)
         except TimeoutError:
-            logger.warning("MCP server did not stop within %ss; cancelling", SHUTDOWN_TIMEOUT_S)
+            logger.warning(
+                "MCP server did not stop within %ss; cancelling", Settings.SHUTDOWN_TIMEOUT_S
+            )
             await _cancel(runner)
         logger.info("MCP server stopped")
 
@@ -276,7 +272,7 @@ def _normalize(result: mcp_types.CallToolResult) -> ToolResult:
 def _is_connection_lost(exc: Exception) -> bool:
     if isinstance(exc, SDKMCPError):
         return exc.code == CONNECTION_CLOSED
-    return isinstance(exc, _CONNECTION_LOST_ERRORS)
+    return isinstance(exc, Settings.CONNECTION_LOST_ERRORS)
 
 
 def _describe(exc: BaseException) -> str:

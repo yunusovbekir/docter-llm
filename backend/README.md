@@ -31,6 +31,10 @@ Interactive API docs are available at http://127.0.0.1:8000/docs.
 
 Settings are read from environment variables with the `DOCTER_` prefix (see `config.py`).
 
+Fixed defaults, timeouts, logging constants, and shared validation helpers also live on
+the `Settings` class in `config.py` as `ClassVar` attributes. These are not environment
+fields. Define configuration on this class, not as module-level variables in consumers.
+
 | Variable                     | Default                        | Description                                         |
 |------------------------------|--------------------------------|-----------------------------------------------------|
 | `DOCTER_DATA_DIR`          | `~/.docter`                  | Root directory for all local data                   |

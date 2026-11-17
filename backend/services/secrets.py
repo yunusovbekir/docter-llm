@@ -6,11 +6,10 @@ import logging
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
+from backend.config import Settings
 from backend.errors import DocterError
 
 logger = logging.getLogger(__name__)
-
-KEYRING_SERVICE = "docter"
 
 
 class KeyringUnavailableError(DocterError):
@@ -27,7 +26,7 @@ class ApiKeyStore:
     ``KeyringUnavailableError`` so the user is told the key was not saved.
     """
 
-    def __init__(self, service: str = KEYRING_SERVICE) -> None:
+    def __init__(self, service: str = Settings.KEYRING_SERVICE) -> None:
         self._service = service
 
     async def get(self, provider: str) -> str | None:

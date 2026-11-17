@@ -28,7 +28,6 @@ from docter_contract import (
     ToolName,
 )
 from docter_mcp.config import Config
-from docter_mcp.resources import DEFAULT_STYLE_GUIDE
 from docter_mcp.sandbox import Sandbox
 from docter_mcp.server import create_server
 
@@ -239,7 +238,7 @@ async def test_resources_defaults_overrides_and_language_selection(repo: Path) -
         assert str((await session.list_resources()).resources[0].uri) == "docter://style-guide"
         templates = (await session.list_resource_templates()).resource_templates
         assert templates[0].uri_template == "docter://glossary/{lang}"
-        assert await resource_text(session, "docter://style-guide") == DEFAULT_STYLE_GUIDE
+        assert await resource_text(session, "docter://style-guide") == Config.DEFAULT_STYLE_GUIDE
         settings = repo / ".docter"
         settings.mkdir()
         (settings / "style.md").write_text("# Project rules\n")
@@ -260,7 +259,7 @@ async def test_resources_do_not_follow_tool_repo(repo: Path, tmp_path: Path) -> 
     (other / ".docter" / "style.md").write_text("other")
     async with connected(repo) as session:
         await session.call_tool("list_doc_files", {"repo": str(other)})
-        assert await resource_text(session, "docter://style-guide") == DEFAULT_STYLE_GUIDE
+        assert await resource_text(session, "docter://style-guide") == Config.DEFAULT_STYLE_GUIDE
 
 
 async def test_resources_reject_outside_roots(repo: Path, tmp_path: Path) -> None:
@@ -320,7 +319,7 @@ async def test_stdio_console_script(repo: Path) -> None:
         await session.initialize()
         result = await session.call_tool("get_server_info", {})
         assert not result.is_error
-        assert await resource_text(session, "docter://style-guide") == DEFAULT_STYLE_GUIDE
+        assert await resource_text(session, "docter://style-guide") == Config.DEFAULT_STYLE_GUIDE
 
 
 async def test_invalid_encoding_is_not_a_successful_empty_read(repo: Path) -> None:

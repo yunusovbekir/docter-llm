@@ -8,15 +8,6 @@ from httpx import AsyncClient
 from keyring.backends.fail import Keyring as FailKeyring
 
 from backend.config import Settings
-from backend.models.settings import (
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_MAX_AGENT_STEPS,
-    DEFAULT_MODEL,
-    DEFAULT_PROVIDER,
-    DEFAULT_TEMPERATURE,
-)
-from backend.services import settings as settings_service
-from backend.services.secrets import KEYRING_SERVICE
 from backend.tests.fakes import InMemoryKeyring
 
 API_KEY = "sk-super-secret-test-key"
@@ -49,15 +40,15 @@ async def test_get_returns_defaults_without_api_key(client: AsyncClient) -> None
 
     assert response.status_code == 200
     assert response.json() == {
-        "provider": DEFAULT_PROVIDER,
-        "model": DEFAULT_MODEL,
+        "provider": Settings.DEFAULT_PROVIDER,
+        "model": Settings.DEFAULT_MODEL,
         "base_url": None,
-        "embedding_model": DEFAULT_EMBEDDING_MODEL,
-        "temperature": DEFAULT_TEMPERATURE,
-        "max_agent_steps": DEFAULT_MAX_AGENT_STEPS,
+        "embedding_model": Settings.DEFAULT_EMBEDDING_MODEL,
+        "temperature": Settings.DEFAULT_TEMPERATURE,
+        "max_agent_steps": Settings.DEFAULT_MAX_AGENT_STEPS,
         "has_api_key": False,
     }
-    assert DEFAULT_MAX_AGENT_STEPS == 25
+    assert Settings.DEFAULT_MAX_AGENT_STEPS == 25
 
 
 async def test_put_updates_and_persists_settings(client: AsyncClient) -> None:
@@ -97,7 +88,7 @@ async def test_put_with_api_key_stores_it_only_in_keyring(
     assert response.status_code == 200
     assert response.json()["has_api_key"] is True
     assert API_KEY not in response.text
-    assert memory_keyring.passwords == {(KEYRING_SERVICE, "openai"): API_KEY}
+    assert memory_keyring.passwords == {(Settings.KEYRING_SERVICE, "openai"): API_KEY}
     assert API_KEY.encode() not in settings.db_path.read_bytes()
 
     get_response = await client.get("/api/settings")
@@ -113,7 +104,9 @@ async def test_put_without_api_key_keeps_existing_key(
     response = await client.put("/api/settings", json={"model": "gpt-4.1", "api_key": None})
 
     assert response.json()["has_api_key"] is True
-    assert memory_keyring.passwords == {(KEYRING_SERVICE, DEFAULT_PROVIDER): API_KEY}
+    assert memory_keyring.passwords == {
+        (Settings.KEYRING_SERVICE, Settings.DEFAULT_PROVIDER): API_KEY
+    }
 
 
 async def test_put_empty_api_key_deletes_it(
@@ -139,8 +132,8 @@ async def test_api_key_is_scoped_to_provider(
     stored = await client.put("/api/settings", json={"api_key": "sk-anthropic"})
     assert stored.json()["has_api_key"] is True
     assert memory_keyring.passwords == {
-        (KEYRING_SERVICE, "openai"): "sk-openai",
-        (KEYRING_SERVICE, "anthropic"): "sk-anthropic",
+        (Settings.KEYRING_SERVICE, "openai"): "sk-openai",
+        (Settings.KEYRING_SERVICE, "anthropic"): "sk-anthropic",
     }
 
 
@@ -191,7 +184,7 @@ async def test_put_api_key_without_keyring_returns_503_and_saves_nothing(
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "keyring_unavailable"
     body = (await client.get("/api/settings")).json()
-    assert body["model"] == DEFAULT_MODEL
+    assert body["model"] == Settings.DEFAULT_MODEL
     assert body["has_api_key"] is False
 
 
@@ -251,7 +244,7 @@ async def test_connection_failure_reports_redacted_error(
 
 
 async def test_connection_timeout(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings_service, "CONNECTION_TEST_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(Settings, "CONNECTION_TEST_TIMEOUT_S", 0.05)
     _install(monkeypatch, FakeCompletion(delay_s=5))
 
     response = await client.post("/api/settings/test")
