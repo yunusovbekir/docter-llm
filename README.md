@@ -29,3 +29,4 @@ Open the app, set your LLM provider and API key under **Settings**, and add a pr
 ## Documentation
 
 - [Backend](backend/README.md): configuration, API reference, and development guide.
+- [Tool contract](contract/README.md): the shared MCP tool schemas and how to regenerate `contract/schema.json`.

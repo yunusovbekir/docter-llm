@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sys
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -19,6 +20,14 @@ from backend.logging_config import _HANDLER_MARKER
 from backend.main import create_app
 from backend.tests.fakes import InMemoryKeyring
 from backend.tests.git_utils import GitRepoFactory, init_repo
+
+STUB_MCP_SERVER = Path(__file__).parent / "fixtures" / "stub_mcp_server.py"
+
+
+@pytest.fixture
+def stub_mcp_command() -> list[str]:
+    """Command that runs the stub MCP server with the current interpreter."""
+    return [sys.executable, str(STUB_MCP_SERVER)]
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +84,14 @@ def app(settings: Settings) -> FastAPI:
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
+def clean_log_handlers() -> Iterator[None]:
+    """Remove the root log handlers that an app lifespan installs."""
+    yield
+    _remove_docter_log_handlers()
+
+
+@pytest.fixture
+async def client(app: FastAPI, clean_log_handlers: None) -> AsyncIterator[AsyncClient]:
     """HTTP client for ``app`` with the lifespan running."""
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with (
@@ -83,7 +99,6 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
         AsyncClient(transport=transport, base_url="http://test") as http_client,
     ):
         yield http_client
-    _remove_docter_log_handlers()
 
 
 def _remove_docter_log_handlers() -> None:

@@ -1,5 +1,6 @@
 """Application settings loaded from the environment (prefix ``DOCTER_``)."""
 
+import shlex
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = ["http://localhost:5173"]
     frontend_dist_dir: Path = _REPO_ROOT / "frontend" / "dist"
+    mcp_command: str = "uv run docter-mcp"
 
     @field_validator("data_dir", "frontend_dist_dir", mode="after")
     @classmethod
@@ -37,6 +39,18 @@ class Settings(BaseSettings):
     @classmethod
     def _upper_log_level(cls, value: object) -> object:
         return value.upper() if isinstance(value, str) else value
+
+    @field_validator("mcp_command", mode="after")
+    @classmethod
+    def _check_mcp_command(cls, value: str) -> str:
+        if not shlex.split(value):
+            raise ValueError("must not be empty")
+        return value
+
+    @property
+    def mcp_command_args(self) -> list[str]:
+        """The MCP server command split into program and arguments (shell-style quoting)."""
+        return shlex.split(self.mcp_command)
 
     @property
     def db_path(self) -> Path:
