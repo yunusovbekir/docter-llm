@@ -30,7 +30,7 @@ def get_server_info(request: GetServerInfoInput, config: Config) -> GetServerInf
         capabilities=ServerCapabilities(
             tools=list(config.TOOL_NAMES),
             resources=list(RESOURCE_URIS),
-            # M2 cannot execute code, even when execution has been permitted in config.
+            # No execution tool is implemented, even when permitted in config.
             execution_enabled=False,
         ),
     )

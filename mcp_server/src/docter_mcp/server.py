@@ -2,12 +2,12 @@
 
 import argparse
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ResourceError, ToolError
 from mcp.server.mcpserver.tools import Tool
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
@@ -19,14 +19,21 @@ from docter_contract import (
     TOOL_SPECS,
     GetServerInfoInput,
     GetServerInfoOutput,
+    GetSymbolInput,
+    GetSymbolOutput,
+    IndexRepoInput,
+    IndexRepoOutput,
     ListDocFilesInput,
     ListDocFilesOutput,
     ReadFileInput,
     ReadFileOutput,
+    SearchCodeInput,
+    SearchCodeOutput,
     ToolName,
 )
 from docter_mcp import resources, tools
 from docter_mcp.config import Config
+from docter_mcp.indexing import service as indexing
 from docter_mcp.sandbox import Sandbox
 
 
@@ -39,7 +46,7 @@ class _ContractMetadata(FuncMetadata):
         return {"request": self.input_model.model_validate(arguments_to_validate)}
 
 
-def _tool(name: ToolName, handler: Callable[..., BaseModel]) -> Tool:
+def _tool(name: ToolName, handler: Callable[..., BaseModel | Awaitable[BaseModel]]) -> Tool:
     spec = TOOL_SPECS[name]
     tool = Tool.from_function(handler, name=name.value, structured_output=True)
     tool.parameters = spec.input.model_json_schema()
@@ -79,11 +86,43 @@ def create_server(
         """
         return tools.list_doc_files(request, settings)
 
+    async def index_repo(request: IndexRepoInput, ctx: Context) -> IndexRepoOutput:
+        """Build or refresh a repository index before search_code or get_symbol.
+
+        Parses Python symbols and Markdown/reStructuredText sections, respecting .gitignore.
+        Returns file/symbol/chunk counts and duration; reports progress. Only changed files
+        are re-embedded unless force is true. Writes only to configured index storage,
+        never to the target repository; syntax-invalid Python files are logged and skipped.
+        """
+        return await indexing.index_repo(request, settings, ctx)
+
+    def search_code(request: SearchCodeInput) -> SearchCodeOutput:
+        """Find indexed Python symbols or documentation with a natural-language/code query.
+
+        Returns up to k source snippets ranked by semantic similarity plus exact/partial
+        symbol-name boosts, optionally filtered by symbol kind. Documentation uses kind
+        module and has no qualname. Results reflect the last index, not current disk.
+        Raises NOT_INDEXED until index_repo completes or after the configured model changes.
+        """
+        return indexing.search_code(request, settings)
+
+    def get_symbol(request: GetSymbolInput) -> GetSymbolOutput:
+        """Retrieve one exact dotted qualname from a completed repository index.
+
+        Returns its signature, docstring, parameters, and fresh source read from disk.
+        Reparses the indexed file so line ranges and metadata are current. Does not discover
+        newly added symbols until reindexing. Raises NOT_INDEXED or SYMBOL_NOT_FOUND.
+        """
+        return indexing.get_symbol(request, settings)
+
     server: MCPServer[None] = MCPServer(
         "docter-mcp",
         version=version("docter-mcp"),
         tools=[
             _tool(ToolName.GET_SERVER_INFO, get_server_info),
+            _tool(ToolName.INDEX_REPO, index_repo),
+            _tool(ToolName.SEARCH_CODE, search_code),
+            _tool(ToolName.GET_SYMBOL, get_symbol),
             _tool(ToolName.READ_FILE, read_file),
             _tool(ToolName.LIST_DOC_FILES, list_doc_files),
         ],
