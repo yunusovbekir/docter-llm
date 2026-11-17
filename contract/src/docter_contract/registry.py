@@ -3,9 +3,9 @@
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from docsmith_contract._base import ContractModel
-from docsmith_contract.enums import ToolName
-from docsmith_contract.models import (
+from docter_contract._base import ContractModel
+from docter_contract.enums import ToolName
+from docter_contract.models import (
     CheckDocDriftInput,
     CheckDocDriftOutput,
     FindDocGapsInput,

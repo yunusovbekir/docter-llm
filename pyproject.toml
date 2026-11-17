@@ -9,7 +9,7 @@ docter-mcp = { workspace = true }
 docter = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests", "contract/tests"]
+testpaths = ["backend/tests", "contract/tests", "mcp_server/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
@@ -17,6 +17,8 @@ asyncio_default_fixture_loop_scope = "function"
 line-length = 100
 target-version = "py312"
 src = [".", "contract/src", "mcp_server/src"]
+# The sample repository is test data: it deliberately contains a syntax error and drifted docs.
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "ASYNC", "SIM", "RUF"]
@@ -26,7 +28,14 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "contract/src,mcp_server/src"
-files = ["backend", "contract/src", "contract/scripts", "contract/tests", "mcp_server/src"]
+files = [
+    "backend",
+    "contract/src",
+    "contract/scripts",
+    "contract/tests",
+    "mcp_server/src",
+    "mcp_server/tests",
+]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

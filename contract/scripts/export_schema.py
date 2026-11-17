@@ -1,4 +1,4 @@
-"""Export the DocSmith contract's JSON Schemas to contract/schema.json.
+"""Export the Docter contract's JSON Schemas to contract/schema.json.
 
 Usage:
     uv run python contract/scripts/export_schema.py           # write the file
@@ -10,7 +10,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from docsmith_contract import render_schema
+from docter_contract import render_schema
 
 DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "schema.json"
 

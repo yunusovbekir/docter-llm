@@ -3,10 +3,10 @@
 import json
 from typing import Any
 
-from docsmith_contract.errors import ErrorCode, ToolErrorInfo
-from docsmith_contract.registry import TOOL_SPECS
-from docsmith_contract.resources import RESOURCE_URIS
-from docsmith_contract.version import CONTRACT_VERSION
+from docter_contract.errors import ErrorCode, ToolErrorInfo
+from docter_contract.registry import TOOL_SPECS
+from docter_contract.resources import RESOURCE_URIS
+from docter_contract.version import CONTRACT_VERSION
 
 
 def build_schema() -> dict[str, Any]:

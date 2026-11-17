@@ -1,6 +1,6 @@
-# docsmith-contract
+# docter-contract
 
-The shared tool contract between the DocSmith MCP server (`mcp_server/`) and its clients,
+The shared tool contract between the Docter MCP server (`mcp_server/`) and its clients,
 such as the backend (`backend/`). Both sides import these models; neither redefines them.
 
 It defines:
@@ -12,7 +12,7 @@ It defines:
 - `IndexProgress`: the progress notifications `index_repo` sends.
 - `ErrorCode` and `ToolErrorInfo`: tools raise `ToolError(ToolErrorInfo(...).to_message())`,
   which reads `"CODE: message"`; clients recover it with `ToolErrorInfo.parse(text)`.
-- Resource URIs: `docsmith://style-guide` and `docsmith://glossary/{lang}`.
+- Resource URIs: `docter://style-guide` and `docter://glossary/{lang}`.
 
 ## JSON Schema
 

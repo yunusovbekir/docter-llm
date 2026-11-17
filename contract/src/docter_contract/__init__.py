@@ -1,11 +1,11 @@
-"""Shared tool contract between the DocSmith MCP server and its clients.
+"""Shared tool contract between the Docter MCP server and its clients.
 
 Defines the tool names, the pydantic input and output model of every tool, the error
 codes tools report, and the URIs of the resources the server serves.
 """
 
-from docsmith_contract._base import ContractModel, RepoInput
-from docsmith_contract.enums import (
+from docter_contract._base import ContractModel, RepoInput
+from docter_contract.enums import (
     DocFormat,
     DocFramework,
     DocGap,
@@ -14,8 +14,8 @@ from docsmith_contract.enums import (
     SymbolKind,
     ToolName,
 )
-from docsmith_contract.errors import ErrorCode, ToolErrorInfo
-from docsmith_contract.models import (
+from docter_contract.errors import ErrorCode, ToolErrorInfo
+from docter_contract.models import (
     CheckDocDriftInput,
     CheckDocDriftOutput,
     DocFile,
@@ -48,15 +48,15 @@ from docsmith_contract.models import (
     TranslateFileInput,
     TranslateFileOutput,
 )
-from docsmith_contract.registry import TOOL_SPECS, ToolSpec
-from docsmith_contract.resources import (
+from docter_contract.registry import TOOL_SPECS, ToolSpec
+from docter_contract.resources import (
     GLOSSARY_URI_TEMPLATE,
     RESOURCE_URIS,
     STYLE_GUIDE_URI,
     glossary_uri,
 )
-from docsmith_contract.schema import build_schema, render_schema
-from docsmith_contract.version import CONTRACT_VERSION
+from docter_contract.schema import build_schema, render_schema
+from docter_contract.version import CONTRACT_VERSION
 
 __all__ = [
     "CONTRACT_VERSION",

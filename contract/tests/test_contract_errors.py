@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from docsmith_contract import ErrorCode, ToolErrorInfo
+from docter_contract import ErrorCode, ToolErrorInfo
 
 EXPECTED_CODES = {
     "REPO_NOT_FOUND",

@@ -4,7 +4,7 @@ from enum import StrEnum
 
 
 class ToolName(StrEnum):
-    """Names of the tools exposed by the DocSmith MCP server."""
+    """Names of the tools exposed by the Docter MCP server."""
 
     GET_SERVER_INFO = "get_server_info"
     INDEX_REPO = "index_repo"
@@ -26,6 +26,7 @@ class SymbolKind(StrEnum):
     CLASS = "class"
     FUNCTION = "function"
     METHOD = "method"
+    PROPERTY = "property"
 
 
 class ParameterKind(StrEnum):

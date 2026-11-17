@@ -1,6 +1,6 @@
 import pytest
 
-from docsmith_contract import (
+from docter_contract import (
     GLOSSARY_URI_TEMPLATE,
     RESOURCE_URIS,
     STYLE_GUIDE_URI,
@@ -9,14 +9,14 @@ from docsmith_contract import (
 
 
 def test_resource_uris() -> None:
-    assert STYLE_GUIDE_URI == "docsmith://style-guide"
-    assert GLOSSARY_URI_TEMPLATE == "docsmith://glossary/{lang}"
+    assert STYLE_GUIDE_URI == "docter://style-guide"
+    assert GLOSSARY_URI_TEMPLATE == "docter://glossary/{lang}"
     assert RESOURCE_URIS == (STYLE_GUIDE_URI, GLOSSARY_URI_TEMPLATE)
 
 
 @pytest.mark.parametrize("lang", ["de", "pt-BR", "zh-Hans"])
 def test_glossary_uri(lang: str) -> None:
-    assert glossary_uri(lang) == f"docsmith://glossary/{lang}"
+    assert glossary_uri(lang) == f"docter://glossary/{lang}"
 
 
 @pytest.mark.parametrize("lang", ["", "German", "de/../x", "pt_BR"])
