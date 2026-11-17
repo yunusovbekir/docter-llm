@@ -3,14 +3,13 @@
 import shlex
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
-from pydantic import Field, field_validator
+import anyio
+from pydantic import AnyHttpUrl, Field, TypeAdapter, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _default_data_dir() -> Path:
@@ -22,12 +21,48 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="DOCTER_", extra="ignore")
 
+    SETTINGS_ROW_ID: ClassVar[int] = 1
+    DEFAULT_PROVIDER: ClassVar[str] = "openai"
+    DEFAULT_MODEL: ClassVar[str] = "gpt-4o-mini"
+    DEFAULT_EMBEDDING_MODEL: ClassVar[str] = "BAAI/bge-small-en-v1.5"
+    DEFAULT_TEMPERATURE: ClassVar[float] = 0.2
+    DEFAULT_MAX_AGENT_STEPS: ClassVar[int] = 25
+    NON_NULLABLE_SETTINGS_FIELDS: ClassVar[tuple[str, ...]] = (
+        "provider",
+        "model",
+        "embedding_model",
+        "temperature",
+        "max_agent_steps",
+    )
+    HTTP_URL: ClassVar[TypeAdapter[AnyHttpUrl]] = TypeAdapter(AnyHttpUrl)
+    KEYRING_SERVICE: ClassVar[str] = "docter"
+    CONNECTION_TEST_TIMEOUT_S: ClassVar[float] = 15.0
+    MAX_ERROR_LENGTH: ClassVar[int] = 500
+    DEFAULT_STARTUP_TIMEOUT_S: ClassVar[float] = 30.0
+    DEFAULT_REQUEST_TIMEOUT_S: ClassVar[float] = 60.0
+    SHUTDOWN_TIMEOUT_S: ClassVar[float] = 10.0
+    CONNECTION_LOST_ERRORS: ClassVar[tuple[type[Exception], ...]] = (
+        anyio.ClosedResourceError,
+        anyio.BrokenResourceError,
+        anyio.EndOfStream,
+    )
+    LOG_FORMAT: ClassVar[str] = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
+    LOG_FILE_NAME: ClassVar[str] = "docter.log"
+    HANDLER_MARKER: ClassVar[str] = "_docter_handler"
+    MCP_SERVER_LOG_NAME: ClassVar[str] = "mcp-server.log"
+    LOG_MAX_BYTES: ClassVar[int] = 5 * 1024 * 1024
+    LOG_BACKUP_COUNT: ClassVar[int] = 3
+    DIRTY_WARNING: ClassVar[str] = (
+        "The working tree has uncommitted changes. Docter only commits to its own branch, "
+        "but you may want to commit or stash these changes first."
+    )
+
     data_dir: Path = Field(default_factory=_default_data_dir)
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: LogLevel = "INFO"
     cors_origins: list[str] = ["http://localhost:5173"]
-    frontend_dist_dir: Path = _REPO_ROOT / "frontend" / "dist"
+    frontend_dist_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     mcp_command: str = "uv run docter-mcp"
 
     @field_validator("data_dir", "frontend_dist_dir", mode="after")

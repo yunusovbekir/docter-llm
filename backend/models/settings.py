@@ -8,32 +8,22 @@ from typing import Annotated, Self
 
 from pydantic import (
     AfterValidator,
-    AnyHttpUrl,
     BaseModel,
     BeforeValidator,
     ConfigDict,
     SecretStr,
     StringConstraints,
-    TypeAdapter,
     field_validator,
     model_validator,
 )
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field, SQLModel
 
-SETTINGS_ROW_ID = 1
-
-DEFAULT_PROVIDER = "openai"
-DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
-DEFAULT_TEMPERATURE = 0.2
-DEFAULT_MAX_AGENT_STEPS = 25
-
-_HTTP_URL: TypeAdapter[AnyHttpUrl] = TypeAdapter(AnyHttpUrl)
+from backend.config import Settings
 
 
 def _check_http_url(value: str) -> str:
-    _HTTP_URL.validate_python(value)
+    Settings.HTTP_URL.validate_python(value)
     return value
 
 
@@ -58,15 +48,15 @@ class AppSettings(SQLModel, table=True):
     """Persisted LLM configuration. Exactly one row (``id = 1``) may exist."""
 
     __tablename__ = "app_settings"
-    __table_args__ = (CheckConstraint(f"id = {SETTINGS_ROW_ID}", name="single_row"),)
+    __table_args__ = (CheckConstraint(f"id = {Settings.SETTINGS_ROW_ID}", name="single_row"),)
 
-    id: int = Field(default=SETTINGS_ROW_ID, primary_key=True)
-    provider: str = DEFAULT_PROVIDER
-    model: str = DEFAULT_MODEL
+    id: int = Field(default=Settings.SETTINGS_ROW_ID, primary_key=True)
+    provider: str = Settings.DEFAULT_PROVIDER
+    model: str = Settings.DEFAULT_MODEL
     base_url: str | None = None
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    temperature: float = DEFAULT_TEMPERATURE
-    max_agent_steps: int = DEFAULT_MAX_AGENT_STEPS
+    embedding_model: str = Settings.DEFAULT_EMBEDDING_MODEL
+    temperature: float = Settings.DEFAULT_TEMPERATURE
+    max_agent_steps: int = Settings.DEFAULT_MAX_AGENT_STEPS
 
 
 class SettingsRead(BaseModel):
@@ -79,9 +69,6 @@ class SettingsRead(BaseModel):
     temperature: float
     max_agent_steps: int
     has_api_key: bool
-
-
-_NON_NULLABLE_FIELDS = ("provider", "model", "embedding_model", "temperature", "max_agent_steps")
 
 
 class SettingsUpdate(BaseModel):
@@ -109,7 +96,7 @@ class SettingsUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _reject_null_for_required_fields(self) -> Self:
-        for name in _NON_NULLABLE_FIELDS:
+        for name in Settings.NON_NULLABLE_SETTINGS_FIELDS:
             if name in self.model_fields_set and getattr(self, name) is None:
                 raise ValueError(f"{name} cannot be null")
         return self

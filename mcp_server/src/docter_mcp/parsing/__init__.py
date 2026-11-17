@@ -1,8 +1,8 @@
 """Source parsing: extract contract symbols from code and structure from docstrings."""
 
 from docter_mcp.parsing.base import LanguageParser, ParseResult, ParseWarning
+from docter_mcp.parsing.config import ParsingSettings
 from docter_mcp.parsing.docstrings import (
-    DEFAULT_STYLE,
     DocParam,
     DocRaises,
     DocReturns,
@@ -19,7 +19,6 @@ from docter_mcp.parsing.python import (
 )
 
 __all__ = [
-    "DEFAULT_STYLE",
     "DocParam",
     "DocRaises",
     "DocReturns",
@@ -28,6 +27,7 @@ __all__ = [
     "ParseResult",
     "ParseWarning",
     "ParsedDocstring",
+    "ParsingSettings",
     "PythonParser",
     "detect_style",
     "format_parameters",

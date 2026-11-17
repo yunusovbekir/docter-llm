@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 
 from docter_mcp.parsing import (
-    DEFAULT_STYLE,
     DocParam,
     DocRaises,
     DocReturns,
     DocstringStyle,
     ParsedDocstring,
+    ParsingSettings,
     PythonParser,
     detect_style,
     parse_docstring,
@@ -77,7 +77,16 @@ def test_detect_style(texts: list[str], expected: DocstringStyle) -> None:
 
 @pytest.mark.parametrize("texts", [[], [None, ""], ["Just a summary.", "No sections here."]])
 def test_detect_style_defaults_to_google_without_sections(texts: list[str | None]) -> None:
-    assert detect_style(texts) is DEFAULT_STYLE is DocstringStyle.GOOGLE
+    assert detect_style(texts) is ParsingSettings.DEFAULT_STYLE is DocstringStyle.GOOGLE
+
+
+def test_docstring_style_registry_is_read_only() -> None:
+    assert not hasattr(ParsingSettings.LIBRARY_STYLES, "__setitem__")
+    assert tuple(ParsingSettings.LIBRARY_STYLES) == (
+        DocstringStyle.GOOGLE,
+        DocstringStyle.NUMPY,
+        DocstringStyle.REST,
+    )
 
 
 def test_detect_style_ignores_malformed_docstrings() -> None:

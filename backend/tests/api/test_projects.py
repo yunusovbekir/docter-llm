@@ -6,7 +6,7 @@ import pytest
 from git import Repo
 from httpx import AsyncClient
 
-from backend.services.projects import DIRTY_WARNING
+from backend.config import Settings
 from backend.tests.git_utils import GitRepoFactory
 
 
@@ -51,7 +51,7 @@ async def test_create_reports_dirty_tree_without_blocking(
     body = await _create(client, path)
 
     assert body["is_dirty"] is True
-    assert body["warnings"] == [DIRTY_WARNING]
+    assert body["warnings"] == [Settings.DIRTY_WARNING]
 
 
 async def test_create_detects_current_branch(

@@ -12,14 +12,15 @@ from pathlib import Path
 
 from docter_contract import render_schema
 
-DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "schema.json"
-
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Write (or, with ``--check``, verify) the schema file and return the exit code."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument(
-        "--output", type=Path, default=DEFAULT_OUTPUT, help="schema file to write or check"
+        "--output",
+        type=Path,
+        default=Path(__file__).resolve().parent.parent / "schema.json",
+        help="schema file to write or check",
     )
     parser.add_argument(
         "--check", action="store_true", help="fail if the file differs instead of writing it"

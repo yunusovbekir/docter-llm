@@ -16,7 +16,6 @@ from git import Repo
 from httpx import ASGITransport, AsyncClient
 
 from backend.config import Settings, get_settings
-from backend.logging_config import _HANDLER_MARKER
 from backend.main import create_app
 from backend.tests.fakes import InMemoryKeyring
 from backend.tests.git_utils import GitRepoFactory, init_repo
@@ -104,6 +103,6 @@ async def client(app: FastAPI, clean_log_handlers: None) -> AsyncIterator[AsyncC
 def _remove_docter_log_handlers() -> None:
     root = logging.getLogger()
     for handler in list(root.handlers):
-        if getattr(handler, _HANDLER_MARKER, False):
+        if getattr(handler, Settings.HANDLER_MARKER, False):
             root.removeHandler(handler)
             handler.close()
