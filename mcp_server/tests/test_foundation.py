@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,14 +29,6 @@ from docter_contract import (
 from docter_mcp.config import Config
 from docter_mcp.sandbox import Sandbox
 from docter_mcp.server import create_server
-
-
-@pytest.fixture
-def repo(tmp_path: Path, sample_repo: Path) -> Path:
-    root = tmp_path / "repo"
-    shutil.copytree(sample_repo, root)
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
-    return root
 
 
 @asynccontextmanager
@@ -106,6 +97,9 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
         discovered = (await session.list_tools()).tools
         assert {tool.name for tool in discovered} == {
             "get_server_info",
+            "index_repo",
+            "search_code",
+            "get_symbol",
             "read_file",
             "list_doc_files",
         }

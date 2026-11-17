@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from mcp.server.mcpserver.exceptions import ToolError
+from pathspec import GitIgnoreSpec
 
 from docter_contract import ErrorCode, ToolErrorInfo
 
@@ -93,16 +94,38 @@ class Sandbox:
         """Check whether a confined path exists, including non-regular files."""
         return self.resolve(path).exists()
 
-    def files(self) -> Iterator[str]:
-        """List files without descending into Git metadata or directory symlinks."""
+    def files(self, *, respect_gitignore: bool = False) -> Iterator[str]:
+        """List confined files, optionally applying root and nested Git ignore rules."""
 
         def on_error(error: OSError) -> None:
             raise ToolError(f"Cannot enumerate repository: {error}") from error
 
+        ignores: dict[Path, list[tuple[Path, GitIgnoreSpec]]] = {}
         for directory, dirs, names in os.walk(self.root, onerror=on_error, followlinks=False):
+            base = Path(directory)
+            rules = list(ignores.get(base.parent, []))
+            if respect_gitignore and ".gitignore" in names:
+                text = self.read_text((base / ".gitignore").relative_to(self.root).as_posix())
+                rules.append((base, GitIgnoreSpec.from_lines(text.splitlines())))
+            ignores[base] = rules
+
             dirs[:] = sorted(
-                d for d in dirs if d.lower() != ".git" and not (Path(directory) / d).is_symlink()
+                d
+                for d in dirs
+                if d.lower() != ".git"
+                and not (base / d).is_symlink()
+                and not _ignored(base / d, rules, is_dir=True)
             )
             for name in sorted(names):
-                if name.lower() != ".git":
-                    yield (Path(directory) / name).relative_to(self.root).as_posix()
+                if name.lower() != ".git" and not _ignored(base / name, rules):
+                    yield (base / name).relative_to(self.root).as_posix()
+
+
+def _ignored(path: Path, rules: list[tuple[Path, GitIgnoreSpec]], *, is_dir: bool = False) -> bool:
+    matched = False
+    for scope, spec in rules:
+        relative = path.relative_to(scope).as_posix() + ("/" if is_dir else "")
+        result = spec.check_file(relative)
+        if result.include is not None:
+            matched = result.include
+    return matched

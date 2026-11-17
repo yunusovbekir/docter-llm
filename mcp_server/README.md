@@ -1,6 +1,7 @@
 # Docter MCP server
 
-The foundation exposes `get_server_info`, `read_file`, and `list_doc_files` over stdio.
+The server exposes `get_server_info`, `index_repo`, `search_code`, `get_symbol`,
+`read_file`, and `list_doc_files` over stdio.
 It uses the official MCP 2 SDK's `MCPServer` (the renamed FastMCP API). All tool input
 and output schemas are the shared `docter_contract` models, including flat tool arguments.
 The server never writes to the target repository or executes its code.
@@ -28,9 +29,11 @@ The shared contract's immutable protocol definitions remain unchanged.
 
 | Environment variable | Default | Meaning |
 |---|---|---|
-| `DOCTER_INDEX_DIR` | `~/.docter/index` | Reserved index storage location; M2 does not create it. |
+| `DOCTER_INDEX_DIR` | `~/.docter/index` | Persistent index and local embedding-model cache; must be outside the target repo. |
+| `DOCSMITH_INDEX_DIR` | unset | Compatibility alias for `DOCTER_INDEX_DIR`; `DOCTER_INDEX_DIR` takes precedence. |
+| `DOCTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model name; changing it triggers a complete re-index. |
 | `DOCTER_ALLOWED_ROOTS` | unset | Optional comma-separated absolute paths; repos must resolve within one. |
-| `DOCTER_ALLOW_EXEC` | `false` | Execution permission (`true`/`false` or `1`/`0`); M2 has no execution tool and advertises execution as disabled. |
+| `DOCTER_ALLOW_EXEC` | `false` | Execution permission (`true`/`false` or `1`/`0`); no execution tool is implemented, so execution is advertised as disabled. |
 
 File arguments use repository-relative `/` paths. Absolute paths, `..`, `.git` components,
 and symlinks resolving outside the repo or into Git metadata are rejected. Directory
@@ -45,6 +48,46 @@ a start beyond EOF returns empty content.
 `list_doc_files` returns sorted `.md`/`.rst` paths with heading-derived titles where
 available. It detects root `mkdocs.yml`/`mkdocs.yaml` first, then a `conf.py` anywhere
 in the repository for Sphinx, otherwise `none`. It never executes configuration files.
+
+## Indexing and search
+
+Call `index_repo` with an absolute `repo` before using `search_code` or `get_symbol`.
+It walks `.py`, `.md`, and `.rst` files, applying root and nested `.gitignore` rules
+with pathspec, including negation and ignored directories. Git metadata and directory
+symlinks are never traversed. Python files are parsed statically with `PythonParser`;
+syntax errors are logged to stderr and those files contribute no symbols. Unreadable
+or non-UTF-8 files fail the run rather than silently disappearing.
+
+Each Python symbol (including modules) becomes one searchable chunk. Documentation
+is split into non-overlapping heading sections, with preambles kept as separate chunks
+and fenced Markdown code ignored when detecting headings. Because the shared contract
+has no documentation kind, documentation chunks use `kind="module"` and `qualname=null`.
+Files without headings contribute one chunk; empty documentation contributes none.
+
+fastembed runs locally; its first use may download the configured model. Model files
+are cached under `<index_dir>/models`. SQLite stores file content hashes and symbol
+metadata in `<index_dir>/<sha1(canonical_repo_path)>/symbols.sqlite3`; LanceDB vectors
+live alongside it in `vectors/`. A refresh reuses unchanged symbols and vectors, embeds
+only changed/new files, and removes deleted or newly ignored files from the active index.
+`force=true` reparses and re-embeds every eligible file. `files_indexed` counts processed
+new/changed files (including syntax-invalid files), not deletions or unchanged files;
+`symbols` and `chunks` are totals for the completed index.
+
+MCP progress notifications report scanning, embedding, and completion, with strictly
+increasing progress and a stable total. The new vectors are published with the SQLite
+manifest only after success, so a failed refresh leaves the previous index usable.
+Immutable vector generations are retained so readers of an older generation can finish.
+
+`search_code` combines cosine vector similarity with additional exact/partial symbol-name
+candidates and relevance boosts. It returns up to `k` hits (default 8, maximum 50), optionally
+filtered by `kind`, with source snippets and 1-based inclusive line ranges from the last
+index. `get_symbol` requires an exact dotted qualname in the index, then reads and reparses
+that file to return current source, line ranges, and metadata. New symbols need a refresh;
+removed symbols produce `SYMBOL_NOT_FOUND`. Neither tool executes repository code.
+
+Both tools raise `NOT_INDEXED` if no indexing run has completed successfully. A completed
+empty index is valid and searches return no hits. Searching after a model change also
+raises `NOT_INDEXED` until re-indexing; fresh-source symbol retrieval does not need embeddings.
 
 ## Resources
 
@@ -67,6 +110,7 @@ fr:
 
 ```sh
 uv run pytest mcp_server/tests/test_foundation.py
+uv run pytest mcp_server/tests/test_indexing.py
 uv run pytest mcp_server/tests
 uv run ruff check .
 uv run ruff format --check .
@@ -76,3 +120,7 @@ uv run mypy
 Integration tests use the MCP SDK's in-memory client session; a separate stdio test checks
 the installed console script. Tests copy `tests/fixtures/sample_repo` to a temporary directory
 and run `git init` there, leaving the shared fixture and target repositories unchanged.
+Index tests use real SQLite and LanceDB with deterministic local embedding substitutes,
+including relevance checks, full/incremental/forced indexing, failed-refresh recovery,
+ignore and sandbox rules, fresh source reads, and actual MCP progress notifications.
+The fastembed adapter is checked separately without downloading model weights.

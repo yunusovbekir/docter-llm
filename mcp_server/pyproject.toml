@@ -6,7 +6,10 @@ requires-python = ">=3.12"
 dependencies = [
     "docstring-parser>=0.18.0",
     "docter-contract",
+    "fastembed>=0.7",
+    "lancedb>=0.25",
     "mcp>=2.3.0",
+    "pathspec>=0.12",
     "pydantic>=2.14.3",
     "pyyaml>=6.0",
 ]
