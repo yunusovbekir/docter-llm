@@ -1,0 +1,1354 @@
+{
+  "contract_version": "0.1.0",
+  "error_codes": [
+    "REPO_NOT_FOUND",
+    "NOT_A_GIT_REPO",
+    "NOT_INDEXED",
+    "PATH_OUTSIDE_REPO",
+    "FILE_NOT_FOUND",
+    "SYMBOL_NOT_FOUND",
+    "EDIT_NOT_FOUND",
+    "EDIT_AMBIGUOUS",
+    "EXECUTION_DISABLED",
+    "SAMPLING_UNAVAILABLE"
+  ],
+  "error": {
+    "$defs": {
+      "ErrorCode": {
+        "description": "Machine-readable codes for anticipated tool failures.",
+        "enum": [
+          "REPO_NOT_FOUND",
+          "NOT_A_GIT_REPO",
+          "NOT_INDEXED",
+          "PATH_OUTSIDE_REPO",
+          "FILE_NOT_FOUND",
+          "SYMBOL_NOT_FOUND",
+          "EDIT_NOT_FOUND",
+          "EDIT_AMBIGUOUS",
+          "EXECUTION_DISABLED",
+          "SAMPLING_UNAVAILABLE"
+        ],
+        "title": "ErrorCode",
+        "type": "string"
+      }
+    },
+    "additionalProperties": false,
+    "description": "An error code with a human-readable message, as carried in a tool error result.",
+    "properties": {
+      "code": {
+        "$ref": "#/$defs/ErrorCode"
+      },
+      "message": {
+        "description": "What went wrong and how to fix it.",
+        "minLength": 1,
+        "title": "Message",
+        "type": "string"
+      }
+    },
+    "required": [
+      "code",
+      "message"
+    ],
+    "title": "ToolErrorInfo",
+    "type": "object"
+  },
+  "resources": [
+    "docsmith://style-guide",
+    "docsmith://glossary/{lang}"
+  ],
+  "tools": {
+    "get_server_info": {
+      "input": {
+        "additionalProperties": false,
+        "description": "``get_server_info`` takes no arguments.",
+        "properties": {},
+        "title": "GetServerInfoInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ServerCapabilities": {
+            "additionalProperties": false,
+            "description": "What this server instance supports.",
+            "properties": {
+              "tools": {
+                "description": "Tools this server exposes.",
+                "items": {
+                  "$ref": "#/$defs/ToolName"
+                },
+                "title": "Tools",
+                "type": "array"
+              },
+              "resources": {
+                "description": "Resource URIs and URI templates this server serves.",
+                "items": {
+                  "type": "string"
+                },
+                "title": "Resources",
+                "type": "array"
+              },
+              "execution_enabled": {
+                "description": "Whether run_doc_examples may execute code. If false, it fails with EXECUTION_DISABLED.",
+                "title": "Execution Enabled",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "tools",
+              "resources",
+              "execution_enabled"
+            ],
+            "title": "ServerCapabilities",
+            "type": "object"
+          },
+          "ToolName": {
+            "description": "Names of the tools exposed by the DocSmith MCP server.",
+            "enum": [
+              "get_server_info",
+              "index_repo",
+              "search_code",
+              "get_symbol",
+              "read_file",
+              "list_doc_files",
+              "find_doc_gaps",
+              "check_doc_drift",
+              "run_doc_examples",
+              "propose_patch",
+              "translate_file"
+            ],
+            "title": "ToolName",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Versions and capabilities of the server.",
+        "properties": {
+          "contract_version": {
+            "description": "Version of the tool contract the server implements.",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "server_version": {
+            "description": "Version of the server package.",
+            "minLength": 1,
+            "title": "Server Version",
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/$defs/ServerCapabilities"
+          }
+        },
+        "required": [
+          "contract_version",
+          "server_version",
+          "capabilities"
+        ],
+        "title": "GetServerInfoOutput",
+        "type": "object"
+      }
+    },
+    "index_repo": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Build or refresh the code index of a repository.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "force": {
+            "default": false,
+            "description": "Rebuild the whole index even if it is already up to date.",
+            "title": "Force",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "title": "IndexRepoInput",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "description": "Summary of an indexing run.",
+        "properties": {
+          "files_indexed": {
+            "description": "Number of files indexed in this run.",
+            "minimum": 0,
+            "title": "Files Indexed",
+            "type": "integer"
+          },
+          "symbols": {
+            "description": "Number of symbols in the index.",
+            "minimum": 0,
+            "title": "Symbols",
+            "type": "integer"
+          },
+          "chunks": {
+            "description": "Number of searchable chunks in the index.",
+            "minimum": 0,
+            "title": "Chunks",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "description": "Wall-clock duration of the run in milliseconds.",
+            "minimum": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "files_indexed",
+          "symbols",
+          "chunks",
+          "duration_ms"
+        ],
+        "title": "IndexRepoOutput",
+        "type": "object"
+      },
+      "progress": {
+        "additionalProperties": false,
+        "description": "Payload of the MCP progress notifications sent while ``index_repo`` runs.",
+        "properties": {
+          "progress": {
+            "description": "Work done so far. Increases with each notification.",
+            "minimum": 0,
+            "title": "Progress",
+            "type": "number"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Total amount of work, if known.",
+            "title": "Total"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Human-readable description of the step.",
+            "title": "Message"
+          }
+        },
+        "required": [
+          "progress"
+        ],
+        "title": "IndexProgress",
+        "type": "object"
+      }
+    },
+    "search_code": {
+      "input": {
+        "$defs": {
+          "SymbolKind": {
+            "description": "Kind of a Python code symbol.",
+            "enum": [
+              "module",
+              "class",
+              "function",
+              "method"
+            ],
+            "title": "SymbolKind",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Semantic search over the indexed code.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "query": {
+            "description": "Natural-language description or code fragment.",
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "k": {
+            "default": 8,
+            "description": "Maximum number of results to return.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "K",
+            "type": "integer"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SymbolKind"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only return chunks of this symbol kind."
+          }
+        },
+        "required": [
+          "repo",
+          "query"
+        ],
+        "title": "SearchCodeInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "SearchHit": {
+            "additionalProperties": false,
+            "description": "A code chunk that matches a search query.",
+            "properties": {
+              "file": {
+                "description": "Path relative to the repository root, with '/' separators.",
+                "minLength": 1,
+                "title": "File",
+                "type": "string"
+              },
+              "qualname": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Qualified name of the enclosing symbol, if any.",
+                "title": "Qualname"
+              },
+              "kind": {
+                "$ref": "#/$defs/SymbolKind"
+              },
+              "start_line": {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "title": "Start Line",
+                "type": "integer"
+              },
+              "end_line": {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "title": "End Line",
+                "type": "integer"
+              },
+              "snippet": {
+                "description": "Source text of the chunk.",
+                "title": "Snippet",
+                "type": "string"
+              },
+              "score": {
+                "description": "Relevance score. Higher is more relevant.",
+                "title": "Score",
+                "type": "number"
+              }
+            },
+            "required": [
+              "file",
+              "kind",
+              "start_line",
+              "end_line",
+              "snippet",
+              "score"
+            ],
+            "title": "SearchHit",
+            "type": "object"
+          },
+          "SymbolKind": {
+            "description": "Kind of a Python code symbol.",
+            "enum": [
+              "module",
+              "class",
+              "function",
+              "method"
+            ],
+            "title": "SymbolKind",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Search results, most relevant first.",
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/$defs/SearchHit"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "SearchCodeOutput",
+        "type": "object"
+      }
+    },
+    "get_symbol": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Look up one symbol by its qualified name.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "qualname": {
+            "description": "Dotted qualified name, for example 'mylib.client.Client.send'.",
+            "minLength": 1,
+            "title": "Qualname",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "qualname"
+        ],
+        "title": "GetSymbolInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ParameterKind": {
+            "description": "How a function parameter is bound, mirroring ``inspect.Parameter.kind``.",
+            "enum": [
+              "positional_only",
+              "positional_or_keyword",
+              "var_positional",
+              "keyword_only",
+              "var_keyword"
+            ],
+            "title": "ParameterKind",
+            "type": "string"
+          },
+          "SymbolKind": {
+            "description": "Kind of a Python code symbol.",
+            "enum": [
+              "module",
+              "class",
+              "function",
+              "method"
+            ],
+            "title": "SymbolKind",
+            "type": "string"
+          },
+          "SymbolParameter": {
+            "additionalProperties": false,
+            "description": "A parameter in a function or method signature.",
+            "properties": {
+              "name": {
+                "minLength": 1,
+                "title": "Name",
+                "type": "string"
+              },
+              "annotation": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Type annotation as written in the source, if any.",
+                "title": "Annotation"
+              },
+              "default": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Default value expression as written in the source, if any.",
+                "title": "Default"
+              },
+              "kind": {
+                "$ref": "#/$defs/ParameterKind"
+              }
+            },
+            "required": [
+              "name",
+              "kind"
+            ],
+            "title": "SymbolParameter",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Signature, docstring, and source of a symbol.",
+        "properties": {
+          "qualname": {
+            "minLength": 1,
+            "title": "Qualname",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/$defs/SymbolKind"
+          },
+          "file": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "File",
+            "type": "string"
+          },
+          "start_line": {
+            "description": "1-based line number.",
+            "minimum": 1,
+            "title": "Start Line",
+            "type": "integer"
+          },
+          "end_line": {
+            "description": "1-based line number.",
+            "minimum": 1,
+            "title": "End Line",
+            "type": "integer"
+          },
+          "signature": {
+            "description": "Signature as written in the source.",
+            "title": "Signature",
+            "type": "string"
+          },
+          "parameters": {
+            "items": {
+              "$ref": "#/$defs/SymbolParameter"
+            },
+            "title": "Parameters",
+            "type": "array"
+          },
+          "returns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Return annotation as written in the source, if any.",
+            "title": "Returns"
+          },
+          "raises": {
+            "description": "Exception names the symbol raises directly.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Raises",
+            "type": "array"
+          },
+          "decorators": {
+            "description": "Decorator expressions, outermost first.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Decorators",
+            "type": "array"
+          },
+          "docstring": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The docstring, if any.",
+            "title": "Docstring"
+          },
+          "is_public": {
+            "description": "Whether the symbol is part of the public API.",
+            "title": "Is Public",
+            "type": "boolean"
+          },
+          "source": {
+            "description": "Full source text of the symbol.",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "qualname",
+          "kind",
+          "file",
+          "start_line",
+          "end_line",
+          "signature",
+          "parameters",
+          "raises",
+          "decorators",
+          "is_public",
+          "source"
+        ],
+        "title": "GetSymbolOutput",
+        "type": "object"
+      }
+    },
+    "read_file": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Read a text file in the repository, optionally only a range of lines.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "start_line": {
+            "anyOf": [
+              {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "First line to return. Defaults to the start of the file.",
+            "title": "Start Line"
+          },
+          "end_line": {
+            "anyOf": [
+              {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Last line to return. Defaults to the end of the file.",
+            "title": "End Line"
+          }
+        },
+        "required": [
+          "repo",
+          "file_path"
+        ],
+        "title": "ReadFileInput",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "description": "Content of a file, or of the requested line range.",
+        "properties": {
+          "file_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "total_lines": {
+            "description": "Number of lines in the whole file.",
+            "minimum": 0,
+            "title": "Total Lines",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file_path",
+          "content",
+          "total_lines"
+        ],
+        "title": "ReadFileOutput",
+        "type": "object"
+      }
+    },
+    "list_doc_files": {
+      "input": {
+        "additionalProperties": false,
+        "description": "List the documentation files of a repository.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "title": "ListDocFilesInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "DocFile": {
+            "additionalProperties": false,
+            "description": "A documentation source file.",
+            "properties": {
+              "path": {
+                "description": "Path relative to the repository root, with '/' separators.",
+                "minLength": 1,
+                "title": "Path",
+                "type": "string"
+              },
+              "format": {
+                "$ref": "#/$defs/DocFormat"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Page title, if one is declared.",
+                "title": "Title"
+              }
+            },
+            "required": [
+              "path",
+              "format"
+            ],
+            "title": "DocFile",
+            "type": "object"
+          },
+          "DocFormat": {
+            "description": "Markup format of a documentation file.",
+            "enum": [
+              "markdown",
+              "rst"
+            ],
+            "title": "DocFormat",
+            "type": "string"
+          },
+          "DocFramework": {
+            "description": "Documentation site generator detected in a repository.",
+            "enum": [
+              "mkdocs",
+              "sphinx",
+              "none"
+            ],
+            "title": "DocFramework",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Documentation framework and files found in the repository.",
+        "properties": {
+          "framework": {
+            "$ref": "#/$defs/DocFramework"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/$defs/DocFile"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "framework",
+          "files"
+        ],
+        "title": "ListDocFilesOutput",
+        "type": "object"
+      }
+    },
+    "find_doc_gaps": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Report documentation coverage and the symbols that are missing docs.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "include_private": {
+            "default": false,
+            "description": "Also report private symbols (names starting with '_').",
+            "title": "Include Private",
+            "type": "boolean"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "description": "Only consider files whose repo-relative path starts with this prefix, for example 'src/mylib/'.",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Path Prefix"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "title": "FindDocGapsInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "DocGap": {
+            "description": "A piece of documentation a public symbol is missing.",
+            "enum": [
+              "docstring",
+              "params",
+              "returns",
+              "raises",
+              "reference_page"
+            ],
+            "title": "DocGap",
+            "type": "string"
+          },
+          "DocGapItem": {
+            "additionalProperties": false,
+            "description": "A symbol that is missing documentation.",
+            "properties": {
+              "qualname": {
+                "minLength": 1,
+                "title": "Qualname",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/SymbolKind"
+              },
+              "file": {
+                "description": "Path relative to the repository root, with '/' separators.",
+                "minLength": 1,
+                "title": "File",
+                "type": "string"
+              },
+              "line": {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "title": "Line",
+                "type": "integer"
+              },
+              "missing": {
+                "description": "What documentation is missing.",
+                "items": {
+                  "$ref": "#/$defs/DocGap"
+                },
+                "minItems": 1,
+                "title": "Missing",
+                "type": "array"
+              }
+            },
+            "required": [
+              "qualname",
+              "kind",
+              "file",
+              "line",
+              "missing"
+            ],
+            "title": "DocGapItem",
+            "type": "object"
+          },
+          "SymbolKind": {
+            "description": "Kind of a Python code symbol.",
+            "enum": [
+              "module",
+              "class",
+              "function",
+              "method"
+            ],
+            "title": "SymbolKind",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Documentation coverage report.",
+        "properties": {
+          "coverage_percent": {
+            "description": "Share of public symbols that are documented, in percent.",
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Coverage Percent",
+            "type": "number"
+          },
+          "total_public": {
+            "description": "Number of public symbols considered.",
+            "minimum": 0,
+            "title": "Total Public",
+            "type": "integer"
+          },
+          "documented": {
+            "description": "Number of public symbols that have a docstring.",
+            "minimum": 0,
+            "title": "Documented",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/$defs/DocGapItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "coverage_percent",
+          "total_public",
+          "documented",
+          "items"
+        ],
+        "title": "FindDocGapsOutput",
+        "type": "object"
+      }
+    },
+    "check_doc_drift": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Find documentation that no longer matches the code.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "description": "Only consider files whose repo-relative path starts with this prefix, for example 'src/mylib/'.",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Path Prefix"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "title": "CheckDocDriftInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "DriftIssue": {
+            "additionalProperties": false,
+            "description": "A place where documentation and code disagree.",
+            "properties": {
+              "type": {
+                "$ref": "#/$defs/DriftType"
+              },
+              "file": {
+                "description": "Path relative to the repository root, with '/' separators.",
+                "minLength": 1,
+                "title": "File",
+                "type": "string"
+              },
+              "line": {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "title": "Line",
+                "type": "integer"
+              },
+              "symbol": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Qualified name of the affected symbol, if any.",
+                "title": "Symbol"
+              },
+              "detail": {
+                "description": "What is wrong.",
+                "minLength": 1,
+                "title": "Detail",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "file",
+              "line",
+              "detail"
+            ],
+            "title": "DriftIssue",
+            "type": "object"
+          },
+          "DriftType": {
+            "description": "Kind of mismatch between documentation and code.",
+            "enum": [
+              "param_mismatch",
+              "missing_param_doc",
+              "stale_param_doc",
+              "stale_reference",
+              "broken_link",
+              "failing_example"
+            ],
+            "title": "DriftType",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Drift issues found.",
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/$defs/DriftIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          }
+        },
+        "required": [
+          "issues"
+        ],
+        "title": "CheckDocDriftOutput",
+        "type": "object"
+      }
+    },
+    "run_doc_examples": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Run the code examples in docstrings and documentation files.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "description": "Path relative to the repository root, with '/' separators.",
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Only run examples in this file. Defaults to all files.",
+            "title": "File Path"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "title": "RunDocExamplesInput",
+        "type": "object"
+      },
+      "output": {
+        "$defs": {
+          "ExampleResult": {
+            "additionalProperties": false,
+            "description": "Outcome of one code example.",
+            "properties": {
+              "file": {
+                "description": "Path relative to the repository root, with '/' separators.",
+                "minLength": 1,
+                "title": "File",
+                "type": "string"
+              },
+              "line": {
+                "description": "1-based line number.",
+                "minimum": 1,
+                "title": "Line",
+                "type": "integer"
+              },
+              "passed": {
+                "title": "Passed",
+                "type": "boolean"
+              },
+              "output": {
+                "description": "Captured output, or the failure details.",
+                "title": "Output",
+                "type": "string"
+              }
+            },
+            "required": [
+              "file",
+              "line",
+              "passed",
+              "output"
+            ],
+            "title": "ExampleResult",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Results of the examples that were run.",
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/$defs/ExampleResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "RunDocExamplesOutput",
+        "type": "object"
+      }
+    },
+    "propose_patch": {
+      "input": {
+        "$defs": {
+          "Edit": {
+            "additionalProperties": false,
+            "description": "Replace one exact occurrence of ``old_str`` with ``new_str``.",
+            "properties": {
+              "old_str": {
+                "description": "Exact text to replace. It must occur exactly once in the file.",
+                "minLength": 1,
+                "title": "Old Str",
+                "type": "string"
+              },
+              "new_str": {
+                "description": "Replacement text.",
+                "title": "New Str",
+                "type": "string"
+              }
+            },
+            "required": [
+              "old_str",
+              "new_str"
+            ],
+            "title": "Edit",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Propose a change to one file as a unified diff. The file is never modified.\n\nProvide exactly one of ``edits`` (to change an existing file) or ``new_content``\n(to replace the whole file or create a new one).",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Why the change is needed.",
+            "minLength": 1,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "edits": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/Edit"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Edits applied in order. Mutually exclusive with new_content.",
+            "title": "Edits"
+          },
+          "new_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Full new file content. Mutually exclusive with edits.",
+            "title": "New Content"
+          }
+        },
+        "required": [
+          "repo",
+          "file_path",
+          "rationale"
+        ],
+        "title": "ProposePatchInput",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "description": "A proposed change, as a unified diff against the current file.",
+        "properties": {
+          "file_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "patch": {
+            "description": "Unified diff of the change.",
+            "title": "Patch",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "is_new_file": {
+            "description": "Whether the patch creates the file.",
+            "title": "Is New File",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file_path",
+          "patch",
+          "rationale",
+          "is_new_file"
+        ],
+        "title": "ProposePatchOutput",
+        "type": "object"
+      }
+    },
+    "translate_file": {
+      "input": {
+        "additionalProperties": false,
+        "description": "Translate a documentation file into another language.",
+        "properties": {
+          "repo": {
+            "description": "Absolute path to the root of the local git repository.",
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          },
+          "file_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "File Path",
+            "type": "string"
+          },
+          "target_language": {
+            "description": "BCP 47 language tag, for example 'de', 'pt-BR', or 'zh-Hans'.",
+            "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$",
+            "title": "Target Language",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "file_path",
+          "target_language"
+        ],
+        "title": "TranslateFileInput",
+        "type": "object"
+      },
+      "output": {
+        "additionalProperties": false,
+        "description": "A proposed translation, as a unified diff that creates or updates the target file.",
+        "properties": {
+          "source_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "Source Path",
+            "type": "string"
+          },
+          "target_path": {
+            "description": "Path relative to the repository root, with '/' separators.",
+            "minLength": 1,
+            "title": "Target Path",
+            "type": "string"
+          },
+          "patch": {
+            "description": "Unified diff that writes the translated file.",
+            "title": "Patch",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "is_new_file": {
+            "description": "Whether the patch creates the target file.",
+            "title": "Is New File",
+            "type": "boolean"
+          },
+          "warnings": {
+            "description": "Problems a reviewer should check.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_path",
+          "target_path",
+          "patch",
+          "rationale",
+          "is_new_file",
+          "warnings"
+        ],
+        "title": "TranslateFileOutput",
+        "type": "object"
+      }
+    }
+  }
+}

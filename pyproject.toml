@@ -1,41 +1,22 @@
-[project]
-name = "docter"
-version = "0.1.0"
-description = "Locally run AI agent that adds, fixes, finds missing, and translates library documentation."
-readme = "docs/README.md"
-requires-python = ">=3.12"
-dependencies = [
-    "aiosqlite>=0.22.1",
-    "fastapi>=0.163.1",
-    "gitpython>=3.2.1",
-    "keyring>=25.7.0",
-    "litellm>=1.109.1",
-    "pydantic>=2.14.3",
-    "pydantic-settings>=2.16.3",
-    "sqlalchemy[asyncio]>=2.1.9",
-    "sqlmodel>=0.0.50",
-    "uvicorn[standard]>=0.54.0",
-]
+# Virtual workspace root: it has no [project] of its own. `uv sync` installs every
+# member (editable) through the dev dependency group below.
+[tool.uv.workspace]
+members = ["contract", "mcp_server", "backend"]
 
-[project.scripts]
-docter = "backend.cli:main"
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["backend"]
-exclude = ["backend/tests"]
+[tool.uv.sources]
+docter-contract = { workspace = true }
+docter-mcp = { workspace = true }
+docter = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests"]
+testpaths = ["backend/tests", "contract/tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = [".", "contract/src", "mcp_server/src"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "ASYNC", "SIM", "RUF"]
@@ -44,7 +25,8 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "ASYNC", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-packages = ["backend"]
+mypy_path = "contract/src,mcp_server/src"
+files = ["backend", "contract/src", "contract/scripts", "contract/tests", "mcp_server/src"]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
@@ -53,6 +35,9 @@ warn_required_dynamic_aliases = true
 
 [dependency-groups]
 dev = [
+    "docter-contract",
+    "docter-mcp",
+    "docter",
     "httpx>=0.28.1",
     "mypy>=2.4.1",
     "pytest>=9.2.0",

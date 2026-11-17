@@ -15,9 +15,12 @@ from backend.config import Settings, get_settings
 from backend.db import create_all, create_engine, create_sessionmaker
 from backend.errors import register_exception_handlers
 from backend.logging_config import configure_logging
+from backend.mcp_client import MCPManager
 from backend.static import SPAStaticFiles
 
 logger = logging.getLogger(__name__)
+
+MCP_SERVER_LOG_NAME = "mcp-server.log"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -36,10 +39,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await create_all(engine)
         app.state.engine = engine
         app.state.sessionmaker = create_sessionmaker(engine)
+        mcp = MCPManager(
+            resolved.mcp_command_args,
+            errlog_path=resolved.logs_dir / MCP_SERVER_LOG_NAME,
+        )
+        app.state.mcp = mcp
         logger.info("Docter started (data_dir=%s)", resolved.data_dir)
         try:
             yield
         finally:
+            await mcp.close()
             await engine.dispose()
             logger.info("Docter stopped")
 

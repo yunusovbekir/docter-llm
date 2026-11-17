@@ -39,6 +39,7 @@ Settings are read from environment variables with the `DOCTER_` prefix (see `con
 | `DOCTER_LOG_LEVEL`         | `INFO`                         | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`  |
 | `DOCTER_CORS_ORIGINS`      | `["http://localhost:5173"]`    | Allowed CORS origins, given as a JSON list          |
 | `DOCTER_FRONTEND_DIST_DIR` | `<repo>/frontend/dist`         | Directory containing the built Vue app              |
+| `DOCTER_MCP_COMMAND`       | `uv run docter-mcp`            | Command that starts the Docter MCP server (shell-style quoting) |
 
 ### Data directory layout
 
@@ -49,7 +50,7 @@ These paths are derived from `data_dir`. They are created at startup.
   docter.db     # SQLite database
   index/          # vector indexes
   worktrees/      # git worktrees for sessions
-  logs/           # docter.log (rotating, 5 MB x 3)
+  logs/           # docter.log (rotating, 5 MB x 3) and mcp-server.log (MCP server stderr)
 ```
 
 ## Architecture
@@ -67,10 +68,11 @@ These paths are derived from `data_dir`. They are created at startup.
 | `models/`           | SQLModel tables, the separate Pydantic request/response schemas, and `UTCDateTime` |
 | `services/`         | Business logic (`settings.py`, `projects.py`) and the keyring-backed `ApiKeyStore` (`secrets.py`) |
 | `git/`              | GitPython helpers (`repository.py`: read-only working-tree inspection)         |
+| `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
 
 ### Lifespan
 
-At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine` and `sessionmaker` on `app.state`. At shutdown it disposes of the engine.
+At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, and an `MCPManager` (`mcp`) on `app.state`. At shutdown it stops the MCP server, if running, and disposes of the engine.
 
 ### Database sessions
 
@@ -172,6 +174,24 @@ The path is resolved before it is stored, so symlinks and `.` segments map to th
 
 A dirty working tree, including untracked files, does not block registration. The response has `is_dirty: true` and a message in `warnings`.
 
+## MCP client
+
+`MCPManager` (`mcp_client/manager.py`) runs the Docter MCP server as a subprocess, started with `DOCTER_MCP_COMMAND`, and talks to it over stdio with the official `mcp` SDK. Inject it with `MCPManagerDep` from `api/deps.py`.
+
+- **Lifecycle:** one `ClientSession`, opened on first use and kept open by a background task that holds the transport in an `AsyncExitStack`. It is closed at app shutdown. The server's stderr is appended to `logs/mcp-server.log`.
+- **`list_tools()`:** returns the server's tools. The result is cached until the session is closed or restarted.
+- **`call_tool(name, args, timeout, progress_callback=None)`:** returns a `ToolResult` with `text`, `structured`, and `is_error`. A tool that runs but fails returns `is_error: true` instead of raising. `progress_callback(progress, total, message)` receives the server's progress notifications.
+- **`restart()`:** stops the server and starts a new one.
+- **Crash recovery:** if the connection is lost, the failing call raises `MCPError`, and the next call starts a new server.
+- **Sampling:** the constructor accepts an optional `sampling_callback` for `sampling/createMessage` requests from the server.
+
+Failures are raised as domain errors:
+
+| Case                                                 | Status | `code`        |
+|------------------------------------------------------|--------|---------------|
+| The server failed to start, the connection was lost, or a request failed | 502 | `mcp_error` |
+| The server did not start, or a tool did not finish, within the timeout | 504 | `mcp_timeout` |
+
 ## Development
 
 ```bash
@@ -186,8 +206,10 @@ Tests are in `backend/tests/` and mirror the source layout. Shared fixtures are 
 - `settings`: a `Settings` instance bound to that directory.
 - `app`: the application, built with `create_app(settings)`.
 - `client`: an `httpx.AsyncClient` with the lifespan running.
+- `clean_log_handlers`: removes the log handlers a lifespan installs. Use it when a test runs the lifespan itself.
 - `memory_keyring` (autouse): replaces the OS keyring with `tests/fakes.py::InMemoryKeyring`, so tests never touch real credentials.
 - `make_git_repo`: a factory for temporary git repositories on branch `main`, optionally with an initial commit or as a bare repository (see `tests/git_utils.py`).
+- `stub_mcp_command`: runs `tests/fixtures/stub_mcp_server.py`, an `MCPServer` (formerly FastMCP) with the tools `echo`, `index_repo` (reports progress), and `propose_patch` (returns its input as structured output).
 
 LiteLLM is never called for real in tests. Tests replace `litellm.acompletion` with a fake using `monkeypatch`, and `conftest.py` sets `LITELLM_LOCAL_MODEL_COST_MAP=True` so importing LiteLLM stays offline.
 

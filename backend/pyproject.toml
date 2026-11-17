@@ -1,0 +1,35 @@
+[project]
+name = "docter"
+version = "0.1.0"
+description = "Locally run AI agent that adds, fixes, finds missing, and translates library documentation."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "fastapi>=0.163.1",
+    "gitpython>=3.2.1",
+    "keyring>=25.7.0",
+    "litellm>=1.109.1",
+    "mcp>=2.3.0",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.3",
+    "sqlalchemy[asyncio]>=2.1.9",
+    "sqlmodel>=0.0.50",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[project.scripts]
+docter = "backend.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# This directory is itself the `backend` package (flat layout, imported as `backend.*`).
+# The wheel ships its modules under a `backend/` prefix; the editable install puts the
+# workspace root on sys.path so `import backend` resolves to this directory.
+[tool.hatch.build.targets.wheel]
+include = ["/**/*.py"]
+exclude = ["/tests"]
+sources = { "" = "backend" }
+dev-mode-dirs = [".."]

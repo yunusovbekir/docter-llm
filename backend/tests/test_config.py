@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from backend.config import Settings, get_settings
 
@@ -35,3 +36,21 @@ def test_ensure_dirs_creates_all_directories(settings: Settings) -> None:
 
     for directory in (settings.index_dir, settings.worktrees_dir, settings.logs_dir):
         assert directory.is_dir()
+
+
+def test_mcp_command_defaults_to_uv_run(data_dir: Path) -> None:
+    assert Settings().mcp_command_args == ["uv", "run", "docter-mcp"]
+
+
+def test_mcp_command_from_env_is_split_shell_style(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DOCTER_MCP_COMMAND", "'/opt/my tools/python' -m docter_mcp --verbose")
+
+    assert Settings().mcp_command_args == ["/opt/my tools/python", "-m", "docter_mcp", "--verbose"]
+
+
+@pytest.mark.parametrize("command", ["", "   ", "'unclosed"])
+def test_mcp_command_rejects_invalid_values(data_dir: Path, command: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(mcp_command=command)
