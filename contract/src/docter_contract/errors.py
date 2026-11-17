@@ -12,7 +12,7 @@ from typing import Self
 
 from pydantic import Field
 
-from docsmith_contract._base import ContractModel
+from docter_contract._base import ContractModel
 
 
 class ErrorCode(StrEnum):

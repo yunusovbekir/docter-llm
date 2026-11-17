@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Docter MCP server: index a code repository and find, add, fix, and translate its docs."
 requires-python = ">=3.12"
 dependencies = [
+    "docstring-parser>=0.18.0",
     "docter-contract",
     "mcp>=2.3.0",
     "pydantic>=2.14.3",

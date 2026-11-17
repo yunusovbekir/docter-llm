@@ -1,5 +1,5 @@
 {
-  "contract_version": "0.1.0",
+  "contract_version": "0.2.0",
   "error_codes": [
     "REPO_NOT_FOUND",
     "NOT_A_GIT_REPO",
@@ -53,8 +53,8 @@
     "type": "object"
   },
   "resources": [
-    "docsmith://style-guide",
-    "docsmith://glossary/{lang}"
+    "docter://style-guide",
+    "docter://glossary/{lang}"
   ],
   "tools": {
     "get_server_info": {
@@ -102,7 +102,7 @@
             "type": "object"
           },
           "ToolName": {
-            "description": "Names of the tools exposed by the DocSmith MCP server.",
+            "description": "Names of the tools exposed by the Docter MCP server.",
             "enum": [
               "get_server_info",
               "index_repo",
@@ -264,7 +264,8 @@
               "module",
               "class",
               "function",
-              "method"
+              "method",
+              "property"
             ],
             "title": "SymbolKind",
             "type": "string"
@@ -381,7 +382,8 @@
               "module",
               "class",
               "function",
-              "method"
+              "method",
+              "property"
             ],
             "title": "SymbolKind",
             "type": "string"
@@ -450,7 +452,8 @@
               "module",
               "class",
               "function",
-              "method"
+              "method",
+              "property"
             ],
             "title": "SymbolKind",
             "type": "string"
@@ -896,7 +899,8 @@
               "module",
               "class",
               "function",
-              "method"
+              "method",
+              "property"
             ],
             "title": "SymbolKind",
             "type": "string"

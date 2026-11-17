@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from docsmith_contract import (
+from docter_contract import (
     CONTRACT_VERSION,
     TOOL_SPECS,
     CheckDocDriftInput,
@@ -50,7 +50,7 @@ VALID_PAYLOADS: dict[type[ContractModel], dict[str, Any]] = {
         "server_version": "0.1.0",
         "capabilities": {
             "tools": ["index_repo", "search_code"],
-            "resources": ["docsmith://style-guide"],
+            "resources": ["docter://style-guide"],
             "execution_enabled": False,
         },
     },
@@ -166,7 +166,7 @@ VALID_PAYLOADS: dict[type[ContractModel], dict[str, Any]] = {
 
 
 def test_contract_version() -> None:
-    assert CONTRACT_VERSION == "0.1.0"
+    assert CONTRACT_VERSION == "0.2.0"
 
 
 def test_every_tool_has_a_spec() -> None:
@@ -375,7 +375,7 @@ def test_list_doc_files_enums() -> None:
 
 
 def test_enum_values() -> None:
-    assert {k.value for k in SymbolKind} == {"module", "class", "function", "method"}
+    assert {k.value for k in SymbolKind} == {"module", "class", "function", "method", "property"}
     assert {g.value for g in DocGap} == {
         "docstring",
         "params",

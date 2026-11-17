@@ -1,4 +1,4 @@
-"""Input and output models for every DocSmith tool.
+"""Input and output models for every Docter tool.
 
 Every tool input except ``get_server_info`` extends ``RepoInput`` and therefore takes
 ``repo``, the absolute path to the repository root. File paths in inputs and outputs are
@@ -9,7 +9,7 @@ from typing import Annotated, Self
 
 from pydantic import Field, model_validator
 
-from docsmith_contract._base import (
+from docter_contract._base import (
     ContractModel,
     Count,
     LanguageTag,
@@ -19,7 +19,7 @@ from docsmith_contract._base import (
     RepoRelativePath,
     check_line_range,
 )
-from docsmith_contract.enums import (
+from docter_contract.enums import (
     DocFormat,
     DocFramework,
     DocGap,

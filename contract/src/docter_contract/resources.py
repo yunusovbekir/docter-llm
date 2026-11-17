@@ -1,14 +1,14 @@
-"""URIs of the MCP resources served by DocSmith."""
+"""URIs of the MCP resources served by Docter."""
 
 import re
 from typing import Final
 
-from docsmith_contract._base import LANGUAGE_TAG_PATTERN
+from docter_contract._base import LANGUAGE_TAG_PATTERN
 
-STYLE_GUIDE_URI: Final = "docsmith://style-guide"
+STYLE_GUIDE_URI: Final = "docter://style-guide"
 """The documentation style guide (Markdown) that generated docs must follow."""
 
-GLOSSARY_URI_TEMPLATE: Final = "docsmith://glossary/{lang}"
+GLOSSARY_URI_TEMPLATE: Final = "docter://glossary/{lang}"
 """URI template of the translation glossary for one target language (a BCP 47 tag)."""
 
 RESOURCE_URIS: Final = (STYLE_GUIDE_URI, GLOSSARY_URI_TEMPLATE)

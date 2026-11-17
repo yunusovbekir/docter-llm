@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from docsmith_contract import (
+from docter_contract import (
     CONTRACT_VERSION,
     RESOURCE_URIS,
     TOOL_SPECS,
