@@ -1,7 +1,7 @@
 # Docter MCP server
 
 The server exposes `get_server_info`, `index_repo`, `search_code`, `get_symbol`,
-`read_file`, `list_doc_files`, and `find_doc_gaps` over stdio.
+`read_file`, `list_doc_files`, `find_doc_gaps`, and `propose_patch` over stdio.
 It uses the official MCP 2 SDK's `MCPServer` (the renamed FastMCP API). All tool input
 and output schemas are the shared `docter_contract` models, including flat tool arguments.
 The server never writes to the target repository or executes its code.
@@ -117,6 +117,30 @@ selected source files: coverage is `100 * documented / total_public`, where docu
 a nonblank docstring, regardless of section/reference gaps. With no public symbols, coverage
 is 100%. Items are sorted by file, then 1-based line, then qualname for ties.
 
+## Patch proposals
+
+`propose_patch` takes `repo`, `file_path`, `rationale`, and exactly one of:
+
+- `edits`: a nonempty list of `{old_str, new_str}` replacements for an existing UTF-8 file.
+  Edits run sequentially in memory, so each sees the results of earlier edits. Each nonempty
+  `old_str` must occur exactly once, including overlapping matches. Missing or duplicate
+  matches raise `EDIT_NOT_FOUND` or `EDIT_AMBIGUOUS`, with the edit number and short source
+  context so the caller can retry with exact text or a larger selection.
+- `new_content`: the complete UTF-8 text to replace an existing file or propose a new one,
+  including an empty file. Parent directories do not need to exist.
+
+The result contains `file_path`, `patch`, `rationale`, and `is_new_file`. The patch is a
+Git-compatible unified diff with `a/` and `b/` paths (`/dev/null` for a new file's old path),
+Git path quoting, and missing-final-newline markers where needed. Existing line endings
+are not normalized: replacements and full content are used exactly as supplied, including
+CRLF and the presence or absence of a final newline. Unchanged content returns an empty diff;
+skip applying or checking it, since there is no change for Git to process.
+Safe in-repository symlinks resolve to their target, and the result uses that target's
+repo-relative path. All sandbox and allowed-root restrictions apply.
+
+No index is needed. The tool never applies a patch or writes files, directories, or temporary
+files; a client reviews and applies the returned patch separately.
+
 ## Resources
 
 - `docter://style-guide` reads `.docter/style.md`, or a built-in guide if absent.
@@ -140,6 +164,7 @@ fr:
 uv run pytest mcp_server/tests/test_foundation.py
 uv run pytest mcp_server/tests/test_indexing.py
 uv run pytest mcp_server/tests/test_gaps.py
+uv run pytest mcp_server/tests/test_patching.py
 uv run pytest mcp_server/tests
 uv run ruff check .
 uv run ruff format --check .
