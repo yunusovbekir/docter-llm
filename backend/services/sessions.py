@@ -5,23 +5,40 @@ import logging
 from collections.abc import Mapping, Sequence
 from contextlib import aclosing
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import anyio
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlmodel import col, select, update
+from sqlmodel import col, delete, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.agent import Mode, Orchestrator, events
 from backend.config import Settings
 from backend.errors import DocterError
 from backend.mcp_client import MCPManager
-from backend.models import AppSettings, ChangeSet, Comment, Message, Project, Session
+from backend.models import (
+    AppSettings,
+    Change,
+    ChangeHunk,
+    ChangeSet,
+    Comment,
+    Message,
+    Project,
+    Session,
+)
 from backend.models.change import ChangeStatus
 from backend.models.changes import ChangeSetRead
-from backend.models.chat import MessageRead, SessionCreate, SessionDetail, SessionRead
+from backend.models.chat import (
+    ChangeCounts,
+    MessageRead,
+    SessionCreate,
+    SessionDetail,
+    SessionRead,
+    SessionSummary,
+)
 from backend.models.project import IndexStatus
 from backend.models.session import RunStatus
 from backend.models.types import utcnow
@@ -29,6 +46,9 @@ from backend.services.changes import DbChangeSink, get_change, list_change_sets
 from backend.services.projects import ProjectNotFoundError
 from backend.services.secrets import ApiKeyStore
 from backend.services.settings import SettingsService
+
+if TYPE_CHECKING:
+    from backend.git.service import GitService
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +131,69 @@ class SessionService:
                 **SessionRead.model_validate(row).model_dump(),
                 messages=[MessageRead.model_validate(message) for message in messages],
             )
+
+    async def list_all(self, project_id: int) -> list[SessionSummary]:
+        """List a project's sessions oldest first, counting proposals, not hunks."""
+        async with self._sessions() as db:
+            await self._get_project(db, project_id)
+            rows = (
+                await db.exec(
+                    select(Session)
+                    .where(Session.project_id == project_id)
+                    .order_by(col(Session.created_at), col(Session.id))
+                )
+            ).all()
+            counts: dict[int, ChangeCounts] = {}
+            totals = await db.exec(
+                select(ChangeSet.session_id, Change.status, func.count(col(Change.id)))
+                .join(Change, col(Change.change_set_id) == col(ChangeSet.id))
+                .join(Session, col(Session.id) == col(ChangeSet.session_id))
+                .where(Session.project_id == project_id)
+                .group_by(col(ChangeSet.session_id), col(Change.status))
+            )
+            for session_id, status, count in totals:
+                summary = counts.setdefault(session_id, ChangeCounts())
+                if status == ChangeStatus.PENDING:
+                    summary.pending = count
+                elif status == ChangeStatus.APPLIED:
+                    summary.applied = count
+                elif status == ChangeStatus.DENIED:
+                    summary.denied = count
+            result = []
+            for row in rows:
+                assert row.id is not None
+                result.append(
+                    SessionSummary(
+                        **SessionRead.model_validate(row).model_dump(),
+                        change_counts=counts.get(row.id, ChangeCounts()),
+                    )
+                )
+            return result
+
+    async def delete(self, session_id: int, git: "GitService") -> None:
+        """Stop the worker, remove its clean worktree, and delete persisted history.
+
+        The caller holds the session's review lock to exclude concurrent decisions.
+        Git failures leave history intact and never force removal of user edits.
+        """
+        async with self._lock:
+            async with self._sessions() as db:
+                row = await self._get_row(db, session_id)
+            run = self._runs.get(session_id)
+            if run is not None:
+                await self.stop(run)
+            await git.remove_worktree(row)
+            async with self._sessions() as db:
+                change_sets = select(ChangeSet.id).where(ChangeSet.session_id == session_id)
+                changes = select(Change.id).where(col(Change.change_set_id).in_(change_sets))
+                await db.exec(delete(Comment).where(col(Comment.change_id).in_(changes)))
+                await db.exec(delete(ChangeHunk).where(col(ChangeHunk.change_id).in_(changes)))
+                await db.exec(delete(Change).where(col(Change.id).in_(changes)))
+                await db.exec(delete(ChangeSet).where(col(ChangeSet.session_id) == session_id))
+                await db.exec(delete(Message).where(col(Message.session_id) == session_id))
+                await db.exec(delete(Session).where(col(Session.id) == session_id))
+                await db.commit()
+            logger.info("Removed session %s; Git branch retained", session_id)
 
     async def start_chat(self, session_id: int, message: str) -> ChatRun:
         """Reserve the session and persist the user before sending SSE headers."""

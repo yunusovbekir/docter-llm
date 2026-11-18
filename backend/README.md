@@ -219,7 +219,9 @@ modify the project.
 | Endpoint | Description |
 |----------|-------------|
 | `POST /api/sessions {project_id, mode, mode_params}` | Creates a session (`201`). Returns `409`, code `project_not_indexed`, unless the project's `index_status` is `done`. |
+| `GET /api/sessions?project_id={id}` | Lists the project's sessions oldest first (id breaks timestamp ties), each with `change_counts: {pending, applied, denied}`. Counts proposals across all runs by their exact status, not hunks; other statuses are excluded. Empty projects return `[]`; `project_id` is required and must be positive. |
 | `GET /api/sessions/{id}` | Returns session fields plus `messages`, oldest first, with message id as the timestamp tie-breaker. |
+| `DELETE /api/sessions/{id}` | Cancels and awaits active chat, removes the clean worktree, and deletes the session, messages, change sets, proposals, hunks, and comments (`204`). Keeps the Git branch and its commits. Serialized with review decisions; a Git removal failure preserves saved history and returns `git_error` without forcing removal of user edits. |
 | `GET /api/sessions/{id}/changes` | Returns change sets, oldest first, with nested changes, hunks, and per-change original/proposed contents. |
 | `POST /api/sessions/{id}/chat {message}` | Persists the user message and returns an SSE stream. Returns `409`, code `session_running`, if the session already has an active run. |
 | `POST /api/sessions/{id}/cancel` | Cancels and awaits the active run (`204`). Already-idle sessions are unchanged. |
@@ -361,7 +363,9 @@ The app-scoped `GitService` (`git/service.py`, injected with `GitServiceDep`)
 exposes `apply_hunks(change, hunk_indices)` for persisted changes. It creates
 `worktrees_dir/<session_id>` on first approval, branching from the project's
 current **HEAD**, not its uncommitted changes. The branch is `docsmith/<session_id>`
-(integer session ids are already short); its name is saved on the session.
+(integer session ids are already short); if that name already exists, a UUID
+suffix avoids overwriting a retained branch from a deleted session. The selected
+name is saved on the session.
 Later approvals reuse that worktree and branch.
 
 Only the selected zero-based hunks are applied, with target offsets adjusted
