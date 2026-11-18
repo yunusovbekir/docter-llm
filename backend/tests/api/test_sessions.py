@@ -26,6 +26,7 @@ from backend.models.project import IndexStatus
 from backend.models.session import RunStatus
 from backend.services.sessions import ChatRun, SessionService
 from backend.services.settings import SettingsService
+from backend.tests.git_utils import GitRepoFactory
 
 
 @dataclass
@@ -81,9 +82,11 @@ def llm(app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> S
     return llm
 
 
-async def _project(app: FastAPI, status: IndexStatus = IndexStatus.DONE) -> int:
+async def _project(
+    app: FastAPI, status: IndexStatus = IndexStatus.DONE, *, path: str = "/example"
+) -> int:
     async with app.state.sessionmaker() as db:
-        project = Project(name="example", path="/example", index_status=status)
+        project = Project(name="example", path=path, index_status=status)
         db.add(project)
         await db.commit()
         assert project.id is not None
@@ -220,6 +223,7 @@ async def test_unknown_project_and_session(client: AsyncClient) -> None:
     assert response.json()["error"]["code"] == "project_not_found"
     for response in (
         await client.get("/api/sessions/999"),
+        await client.get("/api/sessions/999/changes"),
         await client.post("/api/sessions/999/chat", json={"message": "Hello"}),
         await client.post("/api/sessions/999/cancel"),
     ):
@@ -438,13 +442,19 @@ async def test_stream_errors_are_json_and_release_run(
 
 
 async def test_saved_step_limit_and_proposal_events(
-    app: FastAPI, client: AsyncClient, llm: ScriptedLLM, monkeypatch: pytest.MonkeyPatch
+    app: FastAPI,
+    client: AsyncClient,
+    llm: ScriptedLLM,
+    monkeypatch: pytest.MonkeyPatch,
+    make_git_repo: GitRepoFactory,
 ) -> None:
-    session_id = await _session(client, await _project(app))
+    repo = make_git_repo()
+    assert repo.working_tree_dir is not None
+    session_id = await _session(client, await _project(app, path=str(repo.working_tree_dir)))
     assert (await client.put("/api/settings", json={"max_agent_steps": 1})).status_code == 200
     patch = {
         "file_path": "README.md",
-        "patch": "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-Doc\n+Docs\n",
+        "patch": "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-# Demo\n+# Docs\n",
         "rationale": "Fix heading",
         "is_new_file": False,
     }
@@ -470,6 +480,91 @@ async def test_saved_step_limit_and_proposal_events(
     body = (await client.get(f"/api/sessions/{session_id}")).json()
     assert [message["role"] for message in body["messages"]] == ["user", "assistant", "tool"]
     assert body["messages"][1]["content"] is None
+
+    sets = (await client.get(f"/api/sessions/{session_id}/changes")).json()
+    assert len(sets) == 1
+    assert sets[0]["run_id"] == streamed[0]["id"].rsplit(":", 1)[0]
+    assert sets[0]["session_id"] == session_id
+    change = sets[0]["changes"][0]
+    assert change["change_set_id"] == sets[0]["id"]
+    assert change["patch"] == patch["patch"]
+    assert change["original_content"] == "# Demo\n"
+    assert change["proposed_content"] == "# Docs\n"
+    assert change["hunks"][0]["header"] == "@@ -1 +1 @@"
+    assert change["hunks"][0]["status"] == "pending"
+    fresh = SessionService(app.state.sessionmaker, app.state.mcp)
+    assert [item.model_dump(mode="json") for item in await fresh.get_changes(session_id)] == sets
+
+
+async def test_changes_are_scoped_to_session_and_one_set_per_run(
+    app: FastAPI, client: AsyncClient, llm: ScriptedLLM
+) -> None:
+    project_id = await _project(app)
+    first = await _session(client, project_id)
+    second = await _session(client, project_id)
+    assert (await client.get(f"/api/sessions/{first}/changes")).json() == []
+    llm.turns = [[Done()], [Done()], [Done()]]
+    for session_id in (first, second, first):
+        assert (
+            await client.post(f"/api/sessions/{session_id}/chat", json={"message": "Hello"})
+        ).status_code == 200
+
+    first_sets = (await client.get(f"/api/sessions/{first}/changes")).json()
+    second_sets = (await client.get(f"/api/sessions/{second}/changes")).json()
+    assert len(first_sets) == 2
+    assert len(second_sets) == 1
+    assert len({item["run_id"] for item in first_sets + second_sets}) == 3
+    assert all(item["session_id"] == first and item["changes"] == [] for item in first_sets)
+    assert second_sets[0]["session_id"] == second
+
+
+async def test_agent_retries_rejected_patch_and_only_persists_valid_proposal(
+    app: FastAPI,
+    client: AsyncClient,
+    llm: ScriptedLLM,
+    monkeypatch: pytest.MonkeyPatch,
+    make_git_repo: GitRepoFactory,
+) -> None:
+    repo = make_git_repo()
+    assert repo.working_tree_dir is not None
+    session_id = await _session(client, await _project(app, path=str(repo.working_tree_dir)))
+    patch = "--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-# Demo\n+# Docs\n"
+    good = {
+        "file_path": "README.md",
+        "patch": patch,
+        "rationale": "Fix heading",
+        "is_new_file": False,
+    }
+    bad = {**good, "patch": patch.replace("-# Demo", "-stale")}
+    monkeypatch.setattr(
+        app.state.mcp,
+        "call_tool",
+        AsyncMock(
+            side_effect=[
+                ToolResult(text="", structured=bad),
+                ToolResult(text="", structured=good),
+            ]
+        ),
+    )
+    llm.turns = [
+        [ToolCallRequest("bad", "propose_patch", {}), Done()],
+        [ToolCallRequest("retry", "propose_patch", {}), Done()],
+        [Done()],
+    ]
+
+    streamed = await _events(
+        await client.post(f"/api/sessions/{session_id}/chat", json={"message": "Improve"})
+    )
+
+    results = [item["data"] for item in streamed if item["event"] == "tool_result"]
+    assert [item["is_error"] for item in results] == [True, False]
+    assert "does not apply cleanly" in results[0]["text"]
+    assert llm.requests[1][-1]["content"].startswith("Tool error:")
+    assert len([item for item in streamed if item["event"] == "change_proposed"]) == 1
+    sets = (await client.get(f"/api/sessions/{session_id}/changes")).json()
+    assert len(sets) == 1
+    assert len(sets[0]["changes"]) == 1
+    assert sets[0]["changes"][0]["patch"] == good["patch"]
 
 
 @pytest.mark.parametrize("read_token", [True, False])
