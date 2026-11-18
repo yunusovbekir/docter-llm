@@ -38,8 +38,10 @@ from docter_contract import (
     SearchCodeInput,
     SearchCodeOutput,
     ToolName,
+    TranslateFileInput,
+    TranslateFileOutput,
 )
-from docter_mcp import patching, resources, tools
+from docter_mcp import patching, resources, tools, translation
 from docter_mcp.analysis import drift, examples, gaps
 from docter_mcp.config import Config
 from docter_mcp.indexing import service as indexing
@@ -178,6 +180,17 @@ def create_server(
         """
         return examples.run_doc_examples(request, settings)
 
+    async def translate_file(request: TranslateFileInput, ctx: Context) -> TranslateFileOutput:
+        """Propose a Markdown translation using MCP client sampling; no files are written.
+
+        Requires sampling support and the target repository's glossary for target_language.
+        Protects code, URLs, link destinations, HTML tags, and frontmatter keys. Invalid
+        placeholder responses are retried once, then retain source text with a warning.
+        Uses MkDocs i18n folder layout when configured, otherwise name.<language>.md.
+        Returns a new-file or update diff from the same builder as propose_patch.
+        """
+        return await translation.translate_file(request, settings, ctx)
+
     server: MCPServer[None] = MCPServer(
         "docter-mcp",
         version=version("docter-mcp"),
@@ -192,6 +205,7 @@ def create_server(
             _tool(ToolName.CHECK_DOC_DRIFT, check_doc_drift),
             _tool(ToolName.RUN_DOC_EXAMPLES, run_doc_examples),
             _tool(ToolName.PROPOSE_PATCH, propose_patch),
+            _tool(ToolName.TRANSLATE_FILE, translate_file),
         ],
     )
 

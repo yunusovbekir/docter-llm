@@ -24,8 +24,10 @@ class Config:
         ToolName.CHECK_DOC_DRIFT,
         ToolName.RUN_DOC_EXAMPLES,
         ToolName.PROPOSE_PATCH,
+        ToolName.TRANSLATE_FILE,
     )
     EXAMPLE_TIMEOUT: ClassVar[int] = 20
+    TRANSLATION_MAX_TOKENS: ClassVar[int] = 4096
     DEFAULT_STYLE_GUIDE: ClassVar[str] = """# Documentation style
 
 Use the project's existing docstring convention and terminology.

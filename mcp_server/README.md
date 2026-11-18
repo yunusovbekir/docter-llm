@@ -2,7 +2,7 @@
 
 The server exposes `get_server_info`, `index_repo`, `search_code`, `get_symbol`,
 `read_file`, `list_doc_files`, `find_doc_gaps`, `check_doc_drift`, `run_doc_examples`,
-and `propose_patch` over stdio.
+`propose_patch`, and `translate_file` over stdio.
 It uses the official MCP 2 SDK's `MCPServer` (the renamed FastMCP API). All tool input
 and output schemas are the shared `docter_contract` models, including flat tool arguments.
 The server never writes to the target repository itself. Repository code is executed
@@ -199,6 +199,33 @@ repo-relative path. All sandbox and allowed-root restrictions apply.
 No index is needed. The tool never applies a patch or writes files, directories, or temporary
 files; a client reviews and applies the returned patch separately.
 
+## Translation
+
+`translate_file` takes `repo`, a Markdown `file_path`, and a BCP 47 `target_language`.
+It translates headings and paragraphs through the connected client's MCP sampling model;
+no separate model provider or API key is used. Clients without sampling support receive
+`SAMPLING_UNAVAILABLE`. No index is required, and no repository files are written.
+
+The tool loads the target repository's glossary through the same reader as
+`docter://glossary/{lang}`. Missing or malformed glossaries fail explicitly. Map each term
+to its required translation, or to itself to keep it unchanged. The sampling prompt
+requires exact glossary use and preservation of Markdown structure and placeholders.
+
+Fenced and indented code, inline code, URLs, link destinations and reference identifiers,
+HTML tags, and YAML frontmatter keys are protected with collision-free placeholders.
+Frontmatter values and ordinary link labels remain translatable. Each segment is checked
+for missing, duplicated, invented, or unrestored placeholders. Invalid or truncated
+responses are retried once; a second failure keeps that segment's source text and adds
+a warning. Sampling transport/provider errors fail explicitly rather than returning an
+apparently successful translation.
+
+When MkDocs config enables the i18n plugin's `folder` layout, or existing language
+directories such as `docs/en/` reveal that layout, documentation is targeted
+at `docs/<language>/...` (honoring a custom `docs_dir` and replacing a configured source
+locale directory). Otherwise the target is `<name>.<language>.md` beside the source.
+The result includes source/target paths, warnings, and a Git-compatible new-file or
+update diff built by `propose_patch`. A client reviews and applies it separately.
+
 ## Resources
 
 - `docter://style-guide` reads `.docter/style.md`, or a built-in guide if absent.
@@ -224,6 +251,7 @@ uv run pytest mcp_server/tests/test_indexing.py
 uv run pytest mcp_server/tests/test_gaps.py
 uv run pytest mcp_server/tests/test_drift.py
 uv run pytest mcp_server/tests/test_patching.py
+uv run pytest mcp_server/tests/test_translation.py
 uv run pytest mcp_server/tests
 uv run ruff check .
 uv run ruff format --check .
