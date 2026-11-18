@@ -109,7 +109,7 @@ async def test_propose_patch_returns_its_input_as_structured_output(
 
     result = await manager.call_tool("propose_patch", args, timeout=10)
 
-    assert result.structured == args
+    assert result.structured == {**args, "is_new_file": False}
     assert not result.is_error
 
 
