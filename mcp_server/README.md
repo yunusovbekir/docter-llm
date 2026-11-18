@@ -1,7 +1,7 @@
 # Docter MCP server
 
 The server exposes `get_server_info`, `index_repo`, `search_code`, `get_symbol`,
-`read_file`, and `list_doc_files` over stdio.
+`read_file`, `list_doc_files`, and `find_doc_gaps` over stdio.
 It uses the official MCP 2 SDK's `MCPServer` (the renamed FastMCP API). All tool input
 and output schemas are the shared `docter_contract` models, including flat tool arguments.
 The server never writes to the target repository or executes its code.
@@ -89,6 +89,34 @@ Both tools raise `NOT_INDEXED` if no indexing run has completed successfully. A 
 empty index is valid and searches return no hits. Searching after a model change also
 raises `NOT_INDEXED` until re-indexing; fresh-source symbol retrieval does not need embeddings.
 
+## Documentation gaps
+
+`find_doc_gaps` analyzes current Python files without requiring an index or embeddings.
+It respects `.gitignore`, uses the parser's public-API rules (including static `__all__`),
+and includes modules, classes, functions, methods, and properties. Syntax-invalid files
+are logged to stderr and skipped; unreadable files fail explicitly.
+
+Each item lists all applicable omissions in this order: `docstring`, `params`, `returns`,
+`raises`, `reference_page`. Parameter names are compared with the signature, excluding
+`self`/`cls` and normalizing `*args`/`**kwargs`. Return descriptions are required for
+annotated non-None returns; unannotated return types are not inferred. A raises section
+is required when the parser finds directly raised exceptions, not exceptions raised only
+inside nested functions. Google, NumPy, and reStructuredText docstrings can coexist.
+
+When a root `docs/` directory exists (even if empty), public symbols need an exact dotted
+qualified-name mention in any non-ignored `.md`/`.rst` file in the repository, including
+the README. A mention of `package.Client.method` does not implicitly document
+`package.Client`, and similarly named symbols do not count as matches. Reference checks
+are skipped when `docs/` is absent.
+
+`path_prefix` restricts source files by their literal repo-relative prefix, but documentation
+is searched repository-wide. Unsafe prefixes are rejected. `include_private=true` also
+reports private-symbol docstring/section gaps; reference checks remain public-only.
+`total_public`, `documented`, and `coverage_percent` always describe public symbols in the
+selected source files: coverage is `100 * documented / total_public`, where documented means
+a nonblank docstring, regardless of section/reference gaps. With no public symbols, coverage
+is 100%. Items are sorted by file, then 1-based line, then qualname for ties.
+
 ## Resources
 
 - `docter://style-guide` reads `.docter/style.md`, or a built-in guide if absent.
@@ -111,6 +139,7 @@ fr:
 ```sh
 uv run pytest mcp_server/tests/test_foundation.py
 uv run pytest mcp_server/tests/test_indexing.py
+uv run pytest mcp_server/tests/test_gaps.py
 uv run pytest mcp_server/tests
 uv run ruff check .
 uv run ruff format --check .

@@ -17,6 +17,8 @@ from docter_contract import (
     GLOSSARY_URI_TEMPLATE,
     STYLE_GUIDE_URI,
     TOOL_SPECS,
+    FindDocGapsInput,
+    FindDocGapsOutput,
     GetServerInfoInput,
     GetServerInfoOutput,
     GetSymbolInput,
@@ -32,6 +34,7 @@ from docter_contract import (
     ToolName,
 )
 from docter_mcp import resources, tools
+from docter_mcp.analysis import gaps
 from docter_mcp.config import Config
 from docter_mcp.indexing import service as indexing
 from docter_mcp.sandbox import Sandbox
@@ -115,6 +118,18 @@ def create_server(
         """
         return indexing.get_symbol(request, settings)
 
+    def find_doc_gaps(request: FindDocGapsInput) -> FindDocGapsOutput:
+        """Find missing documentation in current Python source; no index is required.
+
+        Reports missing docstrings, signature params (excluding self/cls), descriptions of
+        annotated non-None returns, and raises sections for directly raised exceptions.
+        When docs/ exists, also flags public qualnames absent from all .md/.rst files.
+        Items are ordered by file and line. path_prefix limits source files; include_private
+        adds private findings without changing public docstring coverage. Respects .gitignore,
+        logs and skips syntax-invalid Python, and never writes or executes repository code.
+        """
+        return gaps.find_doc_gaps(request, settings)
+
     server: MCPServer[None] = MCPServer(
         "docter-mcp",
         version=version("docter-mcp"),
@@ -125,6 +140,7 @@ def create_server(
             _tool(ToolName.GET_SYMBOL, get_symbol),
             _tool(ToolName.READ_FILE, read_file),
             _tool(ToolName.LIST_DOC_FILES, list_doc_files),
+            _tool(ToolName.FIND_DOC_GAPS, find_doc_gaps),
         ],
     )
 

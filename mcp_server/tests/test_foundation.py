@@ -102,6 +102,7 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
             "get_symbol",
             "read_file",
             "list_doc_files",
+            "find_doc_gaps",
         }
         for tool in discovered:
             spec = TOOL_SPECS[ToolName(tool.name)]
@@ -113,6 +114,7 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
         assert info.contract_version == CONTRACT_VERSION
         assert info.server_version == "0.1.0"
         assert info.capabilities.resources == list(RESOURCE_URIS)
+        assert info.capabilities.tools == list(Config.TOOL_NAMES)
         assert info.capabilities.execution_enabled is False
 
 
