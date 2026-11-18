@@ -1,14 +1,11 @@
 """Session creation, completed history, and disconnect-aware chat streams."""
 
-from collections.abc import AsyncIterator
-
-import anyio
 from fastapi import APIRouter, status
-from sse_starlette import EventSourceResponse, ServerSentEvent
-from starlette.background import BackgroundTask
+from sse_starlette import EventSourceResponse
 
-from backend.api.deps import SessionServiceDep
-from backend.models.changes import ChangeSetRead
+from backend.api.deps import ReviewServiceDep, SessionServiceDep
+from backend.api.streams import chat_stream
+from backend.models.changes import ChangeRead, ChangeSetRead
 from backend.models.chat import ChatRequest, SessionCreate, SessionDetail, SessionRead
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -36,24 +33,7 @@ async def chat(
 ) -> EventSourceResponse:
     """Stream JSON agent events, cancelling the worker on disconnect."""
     run = await service.start_chat(session_id, data.message)
-
-    async def cleanup() -> None:
-        with anyio.CancelScope(shield=True):
-            await service.stop(run)
-            await run.events.aclose()
-
-    async def stream() -> AsyncIterator[ServerSentEvent]:
-        try:
-            sequence = 0
-            async for event in run.events:
-                sequence += 1
-                yield ServerSentEvent(
-                    event=event.type, data=event.model_dump_json(), id=f"{run.id}:{sequence}"
-                )
-        finally:
-            await cleanup()
-
-    return EventSourceResponse(stream(), background=BackgroundTask(cleanup))
+    return chat_stream(service, run)
 
 
 @router.get("/{session_id}/changes")
@@ -66,3 +46,9 @@ async def get_changes(session_id: int, service: SessionServiceDep) -> list[Chang
 async def cancel(session_id: int, service: SessionServiceDep) -> None:
     """Cancel the active run, if any, and wait until the session is idle."""
     await service.cancel(session_id)
+
+
+@router.post("/{session_id}/changes/approve-all")
+async def approve_all(session_id: int, service: ReviewServiceDep) -> list[ChangeRead]:
+    """Apply remaining proposals in order, without overriding prior review decisions."""
+    return await service.approve_all(session_id)

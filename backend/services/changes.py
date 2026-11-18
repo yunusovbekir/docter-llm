@@ -8,19 +8,34 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.agent.changes import Error, Ok
+from backend.errors import DocterError
 from backend.git.patches import InvalidPatchError, validate_patch
-from backend.models import Change, ChangeHunk, ChangeSet, Project, Session
-from backend.models.changes import ChangeHunkRead, ChangeRead, ChangeSetRead
+from backend.models import Change, ChangeHunk, ChangeSet, Comment, Project, Session
+from backend.models.changes import ChangeHunkRead, ChangeRead, ChangeSetRead, CommentRead
 from docter_contract import ProposePatchOutput
+
+
+class ChangeNotFoundError(DocterError):
+    """The requested persisted proposal no longer exists."""
+
+    status_code = 404
+    code = "change_not_found"
 
 
 class DbChangeSink:
     """Validate and atomically persist proposals for one session's agent run."""
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession], change_set_id: int) -> None:
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        change_set_id: int,
+        *,
+        parent_change_id: int | None = None,
+    ) -> None:
         """Bind the sink to a previously persisted change set."""
         self._sessions = sessions
         self._change_set_id = change_set_id
+        self._parent_change_id = parent_change_id
 
     async def add(self, change: ProposePatchOutput) -> Ok | Error:
         """Persist a safe, applicable proposal or give the agent a retryable error."""
@@ -43,6 +58,7 @@ class DbChangeSink:
                 rationale=change.rationale,
                 original_content=validated.original_content,
                 proposed_content=validated.proposed_content,
+                parent_change_id=self._parent_change_id,
             )
             db.add(row)
             await db.flush()
@@ -55,6 +71,41 @@ class DbChangeSink:
         return Ok()
 
 
+async def get_change(db: AsyncSession, change_id: int) -> Change:
+    """Load a persisted proposal or raise a standard not-found error."""
+    change = await db.get(Change, change_id)
+    if change is None:
+        raise ChangeNotFoundError(f"Change {change_id} not found")
+    return change
+
+
+async def get_hunks(db: AsyncSession, change_id: int) -> list[ChangeHunk]:
+    """Load a proposal's hunks in zero-based index order."""
+    return list(
+        (
+            await db.exec(
+                select(ChangeHunk)
+                .where(ChangeHunk.change_id == change_id)
+                .order_by(col(ChangeHunk.index))
+            )
+        ).all()
+    )
+
+
+async def get_change_read(db: AsyncSession, change_id: int) -> ChangeRead:
+    """Return one proposal with its durable hunk decisions and review comments."""
+    change = await get_change(db, change_id)
+    hunks = await get_hunks(db, change_id)
+    comments = (
+        await db.exec(
+            select(Comment)
+            .where(Comment.change_id == change_id)
+            .order_by(col(Comment.created_at), col(Comment.id))
+        )
+    ).all()
+    return ChangeRead.model_validate({**change.model_dump(), "hunks": hunks, "comments": comments})
+
+
 async def list_change_sets(db: AsyncSession, session_id: int) -> list[ChangeSetRead]:
     """Return a known session's change sets, proposals, and hunks in stable order."""
     sets = (
@@ -64,6 +115,20 @@ async def list_change_sets(db: AsyncSession, session_id: int) -> list[ChangeSetR
             .order_by(col(ChangeSet.created_at), col(ChangeSet.id))
         )
     ).all()
+    comments = (
+        await db.exec(
+            select(Comment)
+            .join(Change, col(Comment.change_id) == col(Change.id))
+            .join(ChangeSet, col(Change.change_set_id) == col(ChangeSet.id))
+            .where(ChangeSet.session_id == session_id)
+            .order_by(col(Comment.created_at), col(Comment.id))
+        )
+    ).all()
+    comments_by_change: dict[int, list[CommentRead]] = {}
+    for comment in comments:
+        comments_by_change.setdefault(comment.change_id, []).append(
+            CommentRead.model_validate(comment)
+        )
     changes = (
         await db.exec(
             select(Change)
@@ -89,7 +154,11 @@ async def list_change_sets(db: AsyncSession, session_id: int) -> list[ChangeSetR
         assert change.id is not None
         by_set.setdefault(change.change_set_id, []).append(
             ChangeRead.model_validate(
-                {**change.model_dump(), "hunks": by_change.get(change.id, [])}
+                {
+                    **change.model_dump(),
+                    "hunks": by_change.get(change.id, []),
+                    "comments": comments_by_change.get(change.id, []),
+                }
             )
         )
     result: list[ChangeSetRead] = []
