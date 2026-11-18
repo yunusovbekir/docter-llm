@@ -71,14 +71,14 @@ These paths are derived from `data_dir`. They are created at startup.
 | `api/`              | HTTP routers (`health.py`, `settings.py`, `projects.py`, `sessions.py`) and shared dependencies (`deps.py`) |
 | `models/`           | SQLModel tables, the separate Pydantic request/response schemas, and `UTCDateTime` |
 | `services/`         | Settings, projects, indexing jobs, session/chat workers, persisted changes, and the keyring-backed `ApiKeyStore` |
-| `git/`              | Read-only working-tree inspection and patch validation/isolated diff previews |
+| `git/`              | Repository inspection, patch validation/isolated previews, and session worktree approvals |
 | `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
 | `llm/`             | LiteLLM gateway, typed completion events, MCP tool conversion, and sampling callback |
 | `agent/`           | [Mode policies, cancellable orchestration, typed events, and proposal sinks](agent/README.md) |
 
 ### Lifespan
 
-At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), and a `SessionService` (`sessions`) on `app.state`. It resets stale session run flags to `idle`. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
+At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), a `SessionService` (`sessions`), and a `GitService` (`git`) on `app.state`. It resets stale session run flags to `idle`. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
 
 ### Database sessions
 
@@ -289,7 +289,7 @@ and immutable UTF-8 `original_content`/`proposed_content` snapshots.
 `header`, and `status`. Hunks are parsed with `unidiff` and persisted in order.
 Changes and hunks start as `pending`; the status values are `pending`, `approved`,
 `denied`, `partial`, `applied`, `conflict`, and `revised`. This endpoint is
-read-only; review actions and repository writes are not implemented here.
+read-only; approval is provided by the Git service, not an HTTP review endpoint.
 
 `GET /api/sessions/{id}/changes` returns an array of change sets, each containing
 `changes`, each containing `hunks`. Changes are ordered by creation time and id;
@@ -306,6 +306,42 @@ mode-only changes are rejected. Git renders the preview in a disposable director
 never in the project; line endings and missing final newlines are preserved.
 Rejections return an actionable sink `Error`, becoming a tool error so the agent
 can retry. A rejected proposal stores neither a change nor any hunks.
+
+### Git approvals
+
+The app-scoped `GitService` (`git/service.py`, injected with `GitServiceDep`)
+exposes `apply_hunks(change, hunk_indices)` for persisted changes. It creates
+`worktrees_dir/<session_id>` on first approval, branching from the project's
+current **HEAD**, not its uncommitted changes. The branch is `docsmith/<session_id>`
+(integer session ids are already short); its name is saved on the session.
+Later approvals reuse that worktree and branch.
+
+Only the selected zero-based hunks are applied, with target offsets adjusted
+when earlier hunks are omitted. An empty selection is invalid except for an
+empty-file creation without hunks. Git first applies the patch with `--index`,
+then retries with `--3way` if necessary. Three-way merging requires blob ids
+in the proposed patch and the corresponding objects in the repository.
+Successful applications are committed as
+`docs(<mode>): <file> - <short rationale>`, authored and committed by
+`DocSmith <docsmith@local>`. The rationale is collapsed to one line and truncated
+to 72 characters. Repository hooks and commit signing are disabled for these
+operations without modifying Git configuration.
+
+Selected hunks become `applied`; the change becomes `partial` until all its
+hunks are applied, then `applied`. If both applications fail, selected hunks and
+the change become `conflict`. Failed applications are restored to the session
+branch's HEAD so conflict markers or unmerged index entries cannot contaminate
+later approvals. Already-applied hunks cannot be approved again. Unexpected
+Git failures raise `git_error`; dirty session worktrees are not overwritten.
+
+`remove_worktree(session)` removes a clean worktree but retains the branch and
+saved branch name. A subsequent approval recreates the worktree on that existing
+branch. The service never checks out, stages, commits, or restores files in the
+user's working tree, and never pushes. The worktree directory must be outside
+the project. Per-session `asyncio.Lock` instances serialize approvals and removal;
+different sessions remain independent. Git runs through `asyncio.to_thread`.
+Cancellation waits for the operation and database persistence before releasing
+the lock. These locks are process-local: use a single backend worker.
 
 ## MCP client
 

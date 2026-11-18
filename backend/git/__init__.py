@@ -1,1 +1,1 @@
-"""Git operations on local repositories (GitPython)."""
+"""Repository inspection, patch validation, and isolated approval worktrees."""
