@@ -26,6 +26,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.5.0" },
     { name = "ruff", specifier = ">=0.17.5" },
     { name = "types-pyyaml", specifier = ">=6.0" },
+    { name = "types-unidiff", specifier = ">=0.7.0.20260727" },
 ]
 
 [[package]]
@@ -677,6 +678,7 @@ dependencies = [
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sqlmodel" },
     { name = "sse-starlette" },
+    { name = "unidiff" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -694,6 +696,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.9" },
     { name = "sqlmodel", specifier = ">=0.0.50" },
     { name = "sse-starlette", specifier = ">=3.7.0" },
+    { name = "unidiff", specifier = ">=1.0.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]
 
@@ -3499,6 +3502,15 @@ wheels = [
 ]
 
 [[package]]
+name = "types-unidiff"
+version = "0.7.0.20260727"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/cf/068d576b6341aa20e3e212f4db8c06f52bebf86a2a15379678bd58241df0/types_unidiff-0.7.0.20260727.tar.gz", hash = "sha256:a0211facb7fe4a25d809bd2e24824bb93fc27f25ded9541bbd71d533b5e00f8c", size = 8251, upload-time = "2026-07-27T05:36:29.226Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3e/65/705a75b399c8b79cf8ea53c562fb882b58f20020d772992cea678aa69ce4/types_unidiff-0.7.0.20260727-py3-none-any.whl", hash = "sha256:20e14049a3bd02109085a97dd3e0f2348ecc0cf137c097c96a42c9850671c032", size = 9327, upload-time = "2026-07-27T05:36:28.452Z" },
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3517,6 +3529,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/50/0195198eb1d75bab716bb0a813abea4cc394bfa17a92a189f021a34859af/typing_inspection-0.4.5.tar.gz", hash = "sha256:7f16c411e7930dc79596d42ab44672a3fe5f60eb34b781a1647e7872363120c7", size = 81194, upload-time = "2026-11-04T14:13:23.774Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl", hash = "sha256:bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39", size = 14874, upload-time = "2026-11-04T14:13:22.616Z" },
+]
+
+[[package]]
+name = "unidiff"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/7a/f891dba8225c20cce4417443073e67f33e01fae9715a6477f59eb32654ae/unidiff-1.0.1.tar.gz", hash = "sha256:d9425bc516390c54743a1045b2c1c97f02d245a913a241dd499f958adb2df998", size = 31800, upload-time = "2026-09-15T01:39:10.847Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/c9/a0529375e0162327fd1cb0dc6785c7a6e56dfae011c2d7b57d611ff84347/unidiff-1.0.1-py3-none-any.whl", hash = "sha256:5e2ca461eda8a4c761ad0922e3e8a65742f359dc60301a3a055b70fd7c158680", size = 18733, upload-time = "2026-09-15T01:39:09.395Z" },
 ]
 
 [[package]]

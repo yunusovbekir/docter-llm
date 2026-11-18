@@ -9,9 +9,10 @@ shared MCP manager's lifetime, expose HTTP endpoints, or apply patches.
 ```python
 from contextlib import aclosing
 
-from backend.agent import InMemoryChangeSink, Mode, Orchestrator
+from backend.agent import Mode, Orchestrator
+from backend.services.changes import DbChangeSink
 
-sink = InMemoryChangeSink()
+sink = DbChangeSink(sessionmaker, change_set_id)
 orchestrator = Orchestrator(gateway, mcp, sink, max_agent_steps=25)
 async with aclosing(orchestrator.run(history, user_message, Mode.ADD, {}, project)) as run:
     async for event in run:
@@ -70,8 +71,14 @@ project/session scope; a rejection message should tell the model how to repair
 the proposal. A `change_proposed` event is emitted only after `Ok`. An `Error`
 becomes the corresponding tool response, not a successful proposal event.
 
-`InMemoryChangeSink` implements the protocol and exposes accepted proposals in
-`changes` for tests. Patch results use the shared contract's
+`DbChangeSink` (`backend.services.changes`) is the session service's production
+sink. Each run has one persisted change set. Proposals must be safe, single-file
+text patches that pass `git apply --check` against the working tree. Accepted
+changes, parsed hunks, and before/after snapshots are stored atomically and exposed
+by `GET /api/sessions/{id}/changes`; previews are rendered outside the project.
+Rejections return an actionable `Error` so the model can retry.
+`InMemoryChangeSink` remains available as a test fake and exposes accepted proposals in
+`changes`. Patch results use the shared contract's
 `ProposePatchOutput`, including `is_new_file`; structured MCP output and legacy
 JSON text output are supported. Nothing is written to the project.
 

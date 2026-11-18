@@ -70,8 +70,8 @@ These paths are derived from `data_dir`. They are created at startup.
 | `static.py`         | `SPAStaticFiles`: serves `frontend/dist` and falls back to `index.html`        |
 | `api/`              | HTTP routers (`health.py`, `settings.py`, `projects.py`, `sessions.py`) and shared dependencies (`deps.py`) |
 | `models/`           | SQLModel tables, the separate Pydantic request/response schemas, and `UTCDateTime` |
-| `services/`         | Settings, projects, indexing jobs, session/chat workers, and the keyring-backed `ApiKeyStore` |
-| `git/`              | GitPython helpers (`repository.py`: read-only working-tree inspection)         |
+| `services/`         | Settings, projects, indexing jobs, session/chat workers, persisted changes, and the keyring-backed `ApiKeyStore` |
+| `git/`              | Read-only working-tree inspection and patch validation/isolated diff previews |
 | `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
 | `llm/`             | LiteLLM gateway, typed completion events, MCP tool conversion, and sampling callback |
 | `agent/`           | [Mode policies, cancellable orchestration, typed events, and proposal sinks](agent/README.md) |
@@ -220,6 +220,7 @@ modify the project.
 |----------|-------------|
 | `POST /api/sessions {project_id, mode, mode_params}` | Creates a session (`201`). Returns `409`, code `project_not_indexed`, unless the project's `index_status` is `done`. |
 | `GET /api/sessions/{id}` | Returns session fields plus `messages`, oldest first, with message id as the timestamp tie-breaker. |
+| `GET /api/sessions/{id}/changes` | Returns change sets, oldest first, with nested changes, hunks, and per-change original/proposed contents. |
 | `POST /api/sessions/{id}/chat {message}` | Persists the user message and returns an SSE stream. Returns `409`, code `session_running`, if the session already has an active run. |
 | `POST /api/sessions/{id}/cancel` | Cancels and awaits the active run (`204`). Already-idle sessions are unchanged. |
 
@@ -272,8 +273,39 @@ await the worker, close its LLM stream, and restore `run_status` to `idle`.
 Cancellation closes the SSE stream without synthesizing a successful `done`.
 Startup clears run flags left by a previous process. Event ids identify events
 but do not provide replay or reconnection; disconnecting cancels that run.
-Patch proposals are forwarded and remain in the tool-message history; no patches
-are applied and no persistent change-review workflow is added.
+Patch proposals remain in tool-message history and are also persisted by
+`DbChangeSink` after validation. No patches are applied to the project.
+
+### Change sets
+
+Every accepted chat run creates one `change_sets` row with `id`, `session_id`,
+unique `run_id` (the same id used by SSE), and UTC `created_at`, even if the run
+fails, is cancelled, or proposes nothing. A session can have many change sets.
+
+`changes` stores `id`, `change_set_id`, repo-relative `file_path`, unified-diff
+`patch`, `rationale`, `status`, nullable `parent_change_id`, UTC `created_at`,
+and immutable UTF-8 `original_content`/`proposed_content` snapshots.
+`change_hunks` stores `id`, `change_id`, zero-based `index`, the original hunk
+`header`, and `status`. Hunks are parsed with `unidiff` and persisted in order.
+Changes and hunks start as `pending`; the status values are `pending`, `approved`,
+`denied`, `partial`, `applied`, `conflict`, and `revised`. This endpoint is
+read-only; review actions and repository writes are not implemented here.
+
+`GET /api/sessions/{id}/changes` returns an array of change sets, each containing
+`changes`, each containing `hunks`. Changes are ordered by creation time and id;
+hunks are ordered by index. A session with no runs returns `[]`, and unknown
+sessions return `404` (`session_not_found`). The snapshots are captured at
+acceptance, so fetching a proposal never depends on the current working tree.
+New files have empty original content; deleted files have empty proposed content.
+
+The database sink rejects absolute paths, traversal, Git metadata (including
+case variants of `.git`), and symlink paths. A patch must describe exactly its
+declared file, have a matching `is_new_file` flag, and pass `git apply --check`
+against the working tree. Binary patches, renames, and nonregular-file or
+mode-only changes are rejected. Git renders the preview in a disposable directory,
+never in the project; line endings and missing final newlines are preserved.
+Rejections return an actionable sink `Error`, becoming a tool error so the agent
+can retry. A rejected proposal stores neither a change nor any hunks.
 
 ## MCP client
 

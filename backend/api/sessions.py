@@ -8,6 +8,7 @@ from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.background import BackgroundTask
 
 from backend.api.deps import SessionServiceDep
+from backend.models.changes import ChangeSetRead
 from backend.models.chat import ChatRequest, SessionCreate, SessionDetail, SessionRead
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -53,6 +54,12 @@ async def chat(
             await cleanup()
 
     return EventSourceResponse(stream(), background=BackgroundTask(cleanup))
+
+
+@router.get("/{session_id}/changes")
+async def get_changes(session_id: int, service: SessionServiceDep) -> list[ChangeSetRead]:
+    """Return change sets with nested proposals, hunks, and stable diff contents."""
+    return await service.get_changes(session_id)
 
 
 @router.post("/{session_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)

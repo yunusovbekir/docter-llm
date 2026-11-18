@@ -14,15 +14,17 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel import col, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from backend.agent import InMemoryChangeSink, Mode, Orchestrator, events
+from backend.agent import Mode, Orchestrator, events
 from backend.config import Settings
 from backend.errors import DocterError
 from backend.mcp_client import MCPManager
-from backend.models import AppSettings, Message, Project, Session
+from backend.models import AppSettings, ChangeSet, Message, Project, Session
+from backend.models.changes import ChangeSetRead
 from backend.models.chat import MessageRead, SessionCreate, SessionDetail, SessionRead
 from backend.models.project import IndexStatus
 from backend.models.session import RunStatus
 from backend.models.types import utcnow
+from backend.services.changes import DbChangeSink, list_change_sets
 from backend.services.projects import ProjectNotFoundError
 from backend.services.secrets import ApiKeyStore
 from backend.services.settings import SettingsService
@@ -119,21 +121,31 @@ class SessionService:
             mode = Mode(row.mode)
             mode.validate_params(row.mode_params)
             history = _history(await self._messages(db, session_id))
+            run_id = uuid4().hex
+            change_set = ChangeSet(session_id=session_id, run_id=run_id)
+            db.add(change_set)
             row.run_status = RunStatus.RUNNING
             db.add(Message(session_id=session_id, role="user", content=message))
             await db.commit()
+            assert change_set.id is not None
             send, receive = anyio.create_memory_object_stream[events.AgentEvent](
                 Settings.CHAT_EVENT_BUFFER_SIZE
             )
             cancel_scope = anyio.CancelScope()
             task = asyncio.create_task(
-                self._run(row, project, history, message, send, cancel_scope),
+                self._run(row, project, history, message, send, cancel_scope, change_set.id),
                 name=f"docter-chat-{session_id}",
             )
-            run = ChatRun(session_id, uuid4().hex, receive, task, cancel_scope)
+            run = ChatRun(session_id, run_id, receive, task, cancel_scope)
             self._runs[session_id] = run
             task.add_done_callback(lambda finished: self._task_done(run, finished))
             return run
+
+    async def get_changes(self, session_id: int) -> list[ChangeSetRead]:
+        """Return persisted run-scoped proposals and their diff-viewer contents."""
+        async with self._sessions() as db:
+            await self._get_row(db, session_id)
+            return await list_change_sets(db, session_id)
 
     async def cancel(self, session_id: int) -> None:
         """Cancel and await the session's current run; idle sessions are unchanged."""
@@ -163,6 +175,7 @@ class SessionService:
         message: str,
         send: MemoryObjectSendStream[events.AgentEvent],
         cancel_scope: anyio.CancelScope,
+        change_set_id: int,
     ) -> None:
         assert row.id is not None
         session_id = row.id
@@ -182,7 +195,7 @@ class SessionService:
                     orchestrator = Orchestrator(
                         gateway,
                         self._mcp,
-                        InMemoryChangeSink(),
+                        DbChangeSink(self._sessions, change_set_id),
                         max_agent_steps=settings.max_agent_steps,
                         on_message=on_message,
                     )

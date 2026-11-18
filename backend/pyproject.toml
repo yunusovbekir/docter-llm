@@ -17,6 +17,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.1.9",
     "sqlmodel>=0.0.50",
     "sse-starlette>=3.7.0",
+    "unidiff>=1.0.1",
     "uvicorn[standard]>=0.54.0",
 ]
 
