@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlmodel import col, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.config import Settings
@@ -32,6 +33,16 @@ class IndexingService:
         self._tasks: dict[int, asyncio.Task[None]] = {}
         self._progress: dict[int, ProjectIndexStatus] = {}
         self._lock = asyncio.Lock()
+
+    async def recover(self) -> None:
+        """Mark jobs interrupted by a previous process as failed before serving."""
+        async with self._sessions() as session:
+            await session.exec(
+                update(Project)
+                .where(col(Project.index_status) == IndexStatus.RUNNING)
+                .values(index_status=IndexStatus.FAILED)
+            )
+            await session.commit()
 
     async def start(self, project_id: int) -> ProjectIndexStatus:
         """Start indexing, or reject a duplicate while its task is still running."""

@@ -26,6 +26,35 @@ uv run docter   # http://127.0.0.1:8000
 
 Open the app, set your LLM provider and API key under **Settings**, and add a project.
 
+## Backend development
+
+Install Python 3.12 and [uv](https://docs.astral.sh/uv/), then run from the repository root:
+
+```bash
+uv sync
+uv run docter                              # http://127.0.0.1:8000
+uv run pytest backend/tests                # backend tests (offline LLM/MCP fakes)
+uv run ruff check backend
+uv run mypy backend
+```
+
+The API docs are at http://127.0.0.1:8000/docs. Run a single backend worker: chat and
+indexing jobs are process-local. Startup resets interrupted chat runs to `idle` and
+interrupted indexing jobs to `failed`, allowing them to be retried.
+
+Export the OpenAPI contract for the frontend after API changes:
+
+```bash
+uv run python -m backend.scripts.export_openapi
+uv run python -m backend.scripts.export_openapi --check
+```
+
+The script writes `frontend/src/api/openapi.json` without starting the backend, MCP,
+or database. The offline approval-flow test is
+`uv run pytest backend/tests/test_e2e.py`; it indexes through a stub MCP server,
+chats with a fake LLM, approves its proposed patch, and checks the real commit on
+the session's `docsmith/` branch.
+
 ## Documentation
 
 - [Backend](backend/README.md): configuration, API reference, and development guide.
