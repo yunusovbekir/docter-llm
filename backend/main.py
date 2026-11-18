@@ -14,9 +14,13 @@ from backend.api import settings as settings_api
 from backend.config import Settings, get_settings
 from backend.db import create_all, create_engine, create_sessionmaker
 from backend.errors import register_exception_handlers
+from backend.llm import LLMGateway
+from backend.llm.sampling import SamplingHandler
 from backend.logging_config import configure_logging
 from backend.mcp_client import MCPManager
 from backend.services.indexing import IndexingService
+from backend.services.secrets import ApiKeyStore
+from backend.services.settings import SettingsService
 from backend.static import SPAStaticFiles
 
 logger = logging.getLogger(__name__)
@@ -37,10 +41,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(resolved.database_url)
         await create_all(engine)
         app.state.engine = engine
-        app.state.sessionmaker = create_sessionmaker(engine)
+        sessionmaker = create_sessionmaker(engine)
+        app.state.sessionmaker = sessionmaker
+
+        async def gateway_factory() -> LLMGateway:
+            async with sessionmaker() as session:
+                return await SettingsService(session, ApiKeyStore()).gateway()
+
         mcp = MCPManager(
             resolved.mcp_command_args,
             errlog_path=resolved.logs_dir / resolved.MCP_SERVER_LOG_NAME,
+            sampling_callback=SamplingHandler(gateway_factory),
         )
         app.state.mcp = mcp
         indexing = IndexingService(app.state.sessionmaker, mcp)

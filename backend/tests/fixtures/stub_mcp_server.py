@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from mcp import types
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel
@@ -61,7 +62,34 @@ def main() -> None:
     global INDEX_CONTROL_DIR
     parser = argparse.ArgumentParser()
     parser.add_argument("--index-control-dir", type=Path)
-    INDEX_CONTROL_DIR = parser.parse_args().index_control_dir
+    parser.add_argument("--sampling", action="store_true")
+    args = parser.parse_args()
+    INDEX_CONTROL_DIR = args.index_control_dir
+    if args.sampling:
+
+        @server.tool()
+        async def sample(ctx: Context[Any, Any]) -> str:
+            """Ask the client to complete a short conversation."""
+            result = await ctx.session.create_message(
+                [
+                    types.SamplingMessage(
+                        role="user", content=types.TextContent(type="text", text="Say hello")
+                    ),
+                    types.SamplingMessage(
+                        role="assistant", content=types.TextContent(type="text", text="Hi")
+                    ),
+                    types.SamplingMessage(
+                        role="user", content=types.TextContent(type="text", text="Again")
+                    ),
+                ],
+                system_prompt="Be concise",
+                max_tokens=16,
+                temperature=0.6,
+                stop_sequences=["END"],
+            )
+            assert isinstance(result, types.CreateMessageResult)
+            return result.model_dump_json(by_alias=True, exclude_none=True)
+
     if INDEX_CONTROL_DIR is not None:
         (INDEX_CONTROL_DIR / "pid").write_text(str(os.getpid()))
     pid_file = os.environ.get(PID_FILE_ENV)
