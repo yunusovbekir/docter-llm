@@ -1,10 +1,12 @@
 # Docter MCP server
 
 The server exposes `get_server_info`, `index_repo`, `search_code`, `get_symbol`,
-`read_file`, `list_doc_files`, `find_doc_gaps`, and `propose_patch` over stdio.
+`read_file`, `list_doc_files`, `find_doc_gaps`, `check_doc_drift`, `run_doc_examples`,
+and `propose_patch` over stdio.
 It uses the official MCP 2 SDK's `MCPServer` (the renamed FastMCP API). All tool input
 and output schemas are the shared `docter_contract` models, including flat tool arguments.
-The server never writes to the target repository or executes its code.
+The server never writes to the target repository itself. Repository code is executed
+only by explicitly enabled documentation example checks; see the execution warning below.
 
 From the workspace root:
 
@@ -33,7 +35,8 @@ The shared contract's immutable protocol definitions remain unchanged.
 | `DOCSMITH_INDEX_DIR` | unset | Compatibility alias for `DOCTER_INDEX_DIR`; `DOCTER_INDEX_DIR` takes precedence. |
 | `DOCTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model name; changing it triggers a complete re-index. |
 | `DOCTER_ALLOWED_ROOTS` | unset | Optional comma-separated absolute paths; repos must resolve within one. |
-| `DOCTER_ALLOW_EXEC` | `false` | Execution permission (`true`/`false` or `1`/`0`); no execution tool is implemented, so execution is advertised as disabled. |
+| `DOCSMITH_ALLOW_EXEC` | `false` | Opt into executing trusted repository examples (`true`/`false` or `1`/`0`). |
+| `DOCTER_ALLOW_EXEC` | unset | Compatibility execution setting; `DOCSMITH_ALLOW_EXEC` takes precedence. |
 
 File arguments use repository-relative `/` paths. Absolute paths, `..`, `.git` components,
 and symlinks resolving outside the repo or into Git metadata are rejected. Directory
@@ -117,6 +120,61 @@ selected source files: coverage is `100 * documented / total_public`, where docu
 a nonblank docstring, regardless of section/reference gaps. With no public symbols, coverage
 is 100%. Items are sorted by file, then 1-based line, then qualname for ties.
 
+## Documentation drift and examples
+
+`check_doc_drift` requires a completed `index_repo` run. It reads current source and docs,
+but checks backticked, repository-qualified Python symbol names against the last index;
+refresh the index after adding or removing symbols. Ordinary inline literals and references
+to other packages are not treated as local symbols. Markdown fenced code and RST literal/code
+bodies are excluded from documentation link/reference checks.
+
+For existing docstrings, differing parameter-name sets produce `param_mismatch` plus an
+individual `missing_param_doc` or `stale_param_doc` for each affected name. `self`/`cls` are
+excluded and `*args`/`**kwargs` are normalized. Google, NumPy, and RST styles are supported;
+class docstrings are compared with their explicit `__init__` or `__new__` signature.
+Missing docstrings belong to `find_doc_gaps`, not drift.
+
+Local Markdown inline/image/reference links and RST inline/named hyperlink targets are
+checked for missing files and anchors. Heading-derived anchors, duplicate Markdown heading
+suffixes, explicit HTML IDs, Markdown `{#id}` anchors, and RST labels are recognized.
+Relative `../` links are allowed only while they stay inside the repository; links into
+Git metadata or through escaping symlinks are reported as broken without reading the target.
+External URLs are never fetched. Site-generator URL rewriting and Sphinx roles are not
+resolved. Issues are sorted by file, line, type, and detail. `path_prefix` limits inspected
+files and execution, not symbol or link targets; discovery respects `.gitignore`.
+
+`run_doc_examples` requires no index and raises `EXECUTION_DISABLED` by default, even when
+there are no examples. Set `DOCSMITH_ALLOW_EXEC=true` before starting the server to opt in
+(`DOCTER_ALLOW_EXEC` is also accepted; `DOCSMITH_ALLOW_EXEC` takes precedence).
+`get_server_info.capabilities.execution_enabled` reports that permission. When enabled,
+`check_doc_drift` reuses this runner and adds `failing_example` issues for failed results.
+
+**Execution warning:** examples and imported modules execute arbitrary repository code with
+the server's permissions. Subprocess isolation and the timeout are not a security sandbox:
+the executed code can read or write files, access credentials, or use the network. Enable
+this only for repositories you trust.
+
+Python docstrings are discovered statically; each doctest transcript runs in a fresh Python
+subprocess that imports its module and verifies expected output with stdlib `doctest`.
+Prompts within a transcript share state. Each Markdown fence marked `python runnable`
+(also `{.python .runnable}`) runs as a Python script in its own subprocess; unmarked blocks
+and RST examples are not executed. For example:
+
+````markdown
+```python runnable
+from mylib.client import Client
+assert Client("localhost").address == "localhost:8080"
+```
+````
+
+Each subprocess uses the repo as its working directory, adds the repo and `src/` to the
+import path, disables bytecode writes, captures stdout/stderr, and has a fixed 20-second
+timeout. POSIX process groups are terminated on timeout, including descendants holding output
+pipes. Results include the file, first prompt/code line, pass/fail, and output or diagnostics.
+`file_path` selects one file, otherwise all non-ignored `.py`/`.md` files are scanned.
+Malformed doctest syntax and unreadable files fail explicitly; invalid Python files are
+logged and skipped.
+
 ## Patch proposals
 
 `propose_patch` takes `repo`, `file_path`, `rationale`, and exactly one of:
@@ -164,6 +222,7 @@ fr:
 uv run pytest mcp_server/tests/test_foundation.py
 uv run pytest mcp_server/tests/test_indexing.py
 uv run pytest mcp_server/tests/test_gaps.py
+uv run pytest mcp_server/tests/test_drift.py
 uv run pytest mcp_server/tests/test_patching.py
 uv run pytest mcp_server/tests
 uv run ruff check .
@@ -178,3 +237,6 @@ Index tests use real SQLite and LanceDB with deterministic local embedding subst
 including relevance checks, full/incremental/forced indexing, failed-refresh recovery,
 ignore and sandbox rules, fresh source reads, and actual MCP progress notifications.
 The fastembed adapter is checked separately without downloading model weights.
+Drift tests assert the sample repo's exact issues, Markdown/RST link and anchor behavior,
+and read-only static analysis. Example tests cover execution disabled/enabled, real doctest
+output checking, separate subprocess state, captured output, and the actual 20-second timeout.

@@ -103,6 +103,8 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
             "read_file",
             "list_doc_files",
             "find_doc_gaps",
+            "check_doc_drift",
+            "run_doc_examples",
             "propose_patch",
         }
         for tool in discovered:
@@ -116,7 +118,7 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
         assert info.server_version == "0.1.0"
         assert info.capabilities.resources == list(RESOURCE_URIS)
         assert info.capabilities.tools == list(Config.TOOL_NAMES)
-        assert info.capabilities.execution_enabled is False
+        assert info.capabilities.execution_enabled is True
 
 
 async def test_read_file_and_ranges(repo: Path) -> None:

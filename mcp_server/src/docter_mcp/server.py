@@ -17,6 +17,8 @@ from docter_contract import (
     GLOSSARY_URI_TEMPLATE,
     STYLE_GUIDE_URI,
     TOOL_SPECS,
+    CheckDocDriftInput,
+    CheckDocDriftOutput,
     FindDocGapsInput,
     FindDocGapsOutput,
     GetServerInfoInput,
@@ -31,12 +33,14 @@ from docter_contract import (
     ProposePatchOutput,
     ReadFileInput,
     ReadFileOutput,
+    RunDocExamplesInput,
+    RunDocExamplesOutput,
     SearchCodeInput,
     SearchCodeOutput,
     ToolName,
 )
 from docter_mcp import patching, resources, tools
-from docter_mcp.analysis import gaps
+from docter_mcp.analysis import drift, examples, gaps
 from docter_mcp.config import Config
 from docter_mcp.indexing import service as indexing
 from docter_mcp.sandbox import Sandbox
@@ -145,6 +149,35 @@ def create_server(
         """
         return patching.propose_patch(request, settings)
 
+    def check_doc_drift(request: CheckDocDriftInput) -> CheckDocDriftOutput:
+        """Find stale documentation after index_repo; returns typed issues with file/line.
+
+        Compares current docstring parameters with signatures, excluding self/cls and
+        normalizing *args/**kwargs. Reports aggregate param_mismatch plus individual missing
+        and stale params. Checks backticked repository-qualified symbols against the index
+        and local Markdown/RST links and anchors on disk; external URLs are not fetched.
+        path_prefix limits findings, not reference targets. Respects .gitignore.
+        With DOCSMITH_ALLOW_EXEC=true also runs examples via run_doc_examples and reports
+        failures. WARNING: opt-in execution runs arbitrary repo code with server permissions.
+        Otherwise this tool only reads files and never executes repository code.
+        """
+        return drift.check_doc_drift(request, settings)
+
+    def run_doc_examples(request: RunDocExamplesInput) -> RunDocExamplesOutput:
+        """Run documentation examples only in repositories whose code you trust.
+
+        WARNING: executes arbitrary repository code with the server's permissions; a
+        subprocess is NOT a security sandbox and examples may read/write files or use
+        the network. Raises EXECUTION_DISABLED unless DOCSMITH_ALLOW_EXEC=true (or the
+        DOCTER_ALLOW_EXEC compatibility setting). No index is needed. Runs each Python
+        docstring's doctest transcript and each Markdown `python runnable` fenced block
+        in a separate subprocess inside the repo, with a 20s timeout. Returns file, line,
+        passed, and captured output/failure details. Imports repo modules for doctests;
+        adds repo and src/ to Python's import path and disables bytecode writes. Optional
+        file_path selects one file; otherwise respects .gitignore. Unmarked code is skipped.
+        """
+        return examples.run_doc_examples(request, settings)
+
     server: MCPServer[None] = MCPServer(
         "docter-mcp",
         version=version("docter-mcp"),
@@ -156,6 +189,8 @@ def create_server(
             _tool(ToolName.READ_FILE, read_file),
             _tool(ToolName.LIST_DOC_FILES, list_doc_files),
             _tool(ToolName.FIND_DOC_GAPS, find_doc_gaps),
+            _tool(ToolName.CHECK_DOC_DRIFT, check_doc_drift),
+            _tool(ToolName.RUN_DOC_EXAMPLES, run_doc_examples),
             _tool(ToolName.PROPOSE_PATCH, propose_patch),
         ],
     )
