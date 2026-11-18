@@ -54,6 +54,20 @@ class SessionDetail(SessionRead):
     messages: list[MessageRead]
 
 
+class ChangeCounts(BaseModel):
+    """Proposal counts for the three listed review statuses."""
+
+    pending: int = 0
+    applied: int = 0
+    denied: int = 0
+
+
+class SessionSummary(SessionRead):
+    """A listed session with its persisted proposal counts."""
+
+    change_counts: ChangeCounts
+
+
 class ChatRequest(BaseModel):
     """A nonblank user message; preserve its original whitespace."""
 

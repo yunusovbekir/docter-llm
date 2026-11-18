@@ -1,12 +1,20 @@
 """Session creation, completed history, and disconnect-aware chat streams."""
 
-from fastapi import APIRouter, status
+from typing import Annotated
+
+from fastapi import APIRouter, Query, status
 from sse_starlette import EventSourceResponse
 
 from backend.api.deps import ReviewServiceDep, SessionServiceDep
 from backend.api.streams import chat_stream
 from backend.models.changes import ChangeRead, ChangeSetRead
-from backend.models.chat import ChatRequest, SessionCreate, SessionDetail, SessionRead
+from backend.models.chat import (
+    ChatRequest,
+    SessionCreate,
+    SessionDetail,
+    SessionRead,
+    SessionSummary,
+)
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -21,6 +29,20 @@ async def create_session(data: SessionCreate, service: SessionServiceDep) -> Ses
 async def get_session(session_id: int, service: SessionServiceDep) -> SessionDetail:
     """Return session configuration, run state, and completed messages."""
     return await service.get(session_id)
+
+
+@router.get("")
+async def list_sessions(
+    project_id: Annotated[int, Query(gt=0)], service: SessionServiceDep
+) -> list[SessionSummary]:
+    """List project sessions with pending, applied, and denied proposal counts."""
+    return await service.list_all(project_id)
+
+
+@router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(session_id: int, service: ReviewServiceDep) -> None:
+    """Remove a session and its worktree, retaining its Git branch."""
+    await service.delete_session(session_id)
 
 
 @router.post(

@@ -6,6 +6,7 @@ import os
 import subprocess
 from collections.abc import Coroutine, Sequence
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -70,7 +71,7 @@ class GitService:
             worktree = self._worktrees_dir / str(session_id)
             # Integer session ids are already short and uniquely identify the branch.
             branch = session.branch_name or f"docsmith/{session_id}"
-            await asyncio.to_thread(
+            branch = await asyncio.to_thread(
                 _ensure_worktree, root, worktree, branch, session.branch_name is None
             )
             if session.branch_name is None:
@@ -164,7 +165,7 @@ def _git(
     return result
 
 
-def _ensure_worktree(root: Path, worktree: Path, branch: str, create_branch: bool) -> None:
+def _ensure_worktree(root: Path, worktree: Path, branch: str, create_branch: bool) -> str:
     if worktree.is_symlink():
         raise GitOperationError("A session worktree must not be a symlink.")
     root, worktree = root.resolve(), worktree.resolve()
@@ -176,10 +177,14 @@ def _ensure_worktree(root: Path, worktree: Path, branch: str, create_branch: boo
         except OSError as exc:
             raise GitOperationError(f"Cannot create the session worktree directory: {exc}") from exc
         if create_branch:
+            # Deleted sessions retain branches, and SQLite can reuse their ids.
+            if _git(root, "branch", "--list", branch).stdout:
+                branch = f"{branch}-{uuid4().hex}"
             _git(root, "worktree", "add", "-b", branch, str(worktree), "HEAD")
         else:
             _git(root, "worktree", "add", str(worktree), branch)
     _check_worktree(root, worktree, branch)
+    return branch
 
 
 def _check_worktree(root: Path, worktree: Path, branch: str) -> None:
