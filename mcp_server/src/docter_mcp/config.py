@@ -21,8 +21,11 @@ class Config:
         ToolName.READ_FILE,
         ToolName.LIST_DOC_FILES,
         ToolName.FIND_DOC_GAPS,
+        ToolName.CHECK_DOC_DRIFT,
+        ToolName.RUN_DOC_EXAMPLES,
         ToolName.PROPOSE_PATCH,
     )
+    EXAMPLE_TIMEOUT: ClassVar[int] = 20
     DEFAULT_STYLE_GUIDE: ClassVar[str] = """# Documentation style
 
 Use the project's existing docstring convention and terminology.
@@ -37,11 +40,15 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
-        """Load DOCTER_* settings, rejecting malformed booleans and roots."""
+        """Load environment settings, rejecting malformed booleans and roots."""
         values = os.environ if env is None else env
-        flag = values.get("DOCTER_ALLOW_EXEC", "false").strip().lower()
+        flag = (
+            values.get("DOCSMITH_ALLOW_EXEC", values.get("DOCTER_ALLOW_EXEC", "false"))
+            .strip()
+            .lower()
+        )
         if flag not in {"true", "false", "1", "0"}:
-            raise ValueError("DOCTER_ALLOW_EXEC must be true, false, 1, or 0")
+            raise ValueError("DOCSMITH_ALLOW_EXEC/DOCTER_ALLOW_EXEC must be true, false, 1, or 0")
         roots_text = values.get("DOCTER_ALLOWED_ROOTS", "").strip()
         roots: list[Path] = []
         if roots_text:

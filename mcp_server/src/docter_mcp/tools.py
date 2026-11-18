@@ -30,8 +30,7 @@ def get_server_info(request: GetServerInfoInput, config: Config) -> GetServerInf
         capabilities=ServerCapabilities(
             tools=list(config.TOOL_NAMES),
             resources=list(RESOURCE_URIS),
-            # No execution tool is implemented, even when permitted in config.
-            execution_enabled=False,
+            execution_enabled=config.allow_exec,
         ),
     )
 
