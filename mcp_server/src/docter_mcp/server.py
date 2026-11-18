@@ -27,13 +27,15 @@ from docter_contract import (
     IndexRepoOutput,
     ListDocFilesInput,
     ListDocFilesOutput,
+    ProposePatchInput,
+    ProposePatchOutput,
     ReadFileInput,
     ReadFileOutput,
     SearchCodeInput,
     SearchCodeOutput,
     ToolName,
 )
-from docter_mcp import resources, tools
+from docter_mcp import patching, resources, tools
 from docter_mcp.analysis import gaps
 from docter_mcp.config import Config
 from docter_mcp.indexing import service as indexing
@@ -130,6 +132,19 @@ def create_server(
         """
         return gaps.find_doc_gaps(request, settings)
 
+    def propose_patch(request: ProposePatchInput) -> ProposePatchOutput:
+        """Propose a change for review as a Git-compatible unified diff; never write files.
+
+        Supply a rationale and exactly one of edits or new_content. Edits replace exact text
+        sequentially in an existing UTF-8 file; each old_str must match exactly once at that
+        step. EDIT_NOT_FOUND and EDIT_AMBIGUOUS include context for retrying with exact text.
+        new_content replaces a whole file or creates a new one. Text, line endings, and final
+        newlines are kept exactly as supplied. Safe symlinks resolve to their target path.
+        Returns file_path, patch, rationale, and is_new_file; unchanged content gives no diff.
+        No index is required, and no files or directories are created, even temporarily.
+        """
+        return patching.propose_patch(request, settings)
+
     server: MCPServer[None] = MCPServer(
         "docter-mcp",
         version=version("docter-mcp"),
@@ -141,6 +156,7 @@ def create_server(
             _tool(ToolName.READ_FILE, read_file),
             _tool(ToolName.LIST_DOC_FILES, list_doc_files),
             _tool(ToolName.FIND_DOC_GAPS, find_doc_gaps),
+            _tool(ToolName.PROPOSE_PATCH, propose_patch),
         ],
     )
 

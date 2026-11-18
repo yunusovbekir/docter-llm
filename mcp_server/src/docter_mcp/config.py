@@ -21,6 +21,7 @@ class Config:
         ToolName.READ_FILE,
         ToolName.LIST_DOC_FILES,
         ToolName.FIND_DOC_GAPS,
+        ToolName.PROPOSE_PATCH,
     )
     DEFAULT_STYLE_GUIDE: ClassVar[str] = """# Documentation style
 

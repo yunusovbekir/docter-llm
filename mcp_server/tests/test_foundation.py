@@ -103,6 +103,7 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
             "read_file",
             "list_doc_files",
             "find_doc_gaps",
+            "propose_patch",
         }
         for tool in discovered:
             spec = TOOL_SPECS[ToolName(tool.name)]
