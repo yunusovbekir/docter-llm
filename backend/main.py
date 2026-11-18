@@ -16,6 +16,7 @@ from backend.db import create_all, create_engine, create_sessionmaker
 from backend.errors import register_exception_handlers
 from backend.logging_config import configure_logging
 from backend.mcp_client import MCPManager
+from backend.services.indexing import IndexingService
 from backend.static import SPAStaticFiles
 
 logger = logging.getLogger(__name__)
@@ -42,10 +43,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             errlog_path=resolved.logs_dir / resolved.MCP_SERVER_LOG_NAME,
         )
         app.state.mcp = mcp
+        indexing = IndexingService(app.state.sessionmaker, mcp)
+        app.state.indexing = indexing
         logger.info("Docter started (data_dir=%s)", resolved.data_dir)
         try:
             yield
         finally:
+            await indexing.close()
             await mcp.close()
             await engine.dispose()
             logger.info("Docter stopped")

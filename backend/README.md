@@ -76,7 +76,7 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ### Lifespan
 
-At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, and an `MCPManager` (`mcp`) on `app.state`. At shutdown it stops the MCP server, if running, and disposes of the engine.
+At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), and an `IndexingService` (`indexing`) on `app.state`. At shutdown it cancels and awaits indexing jobs, stops the MCP server, if running, and disposes of the engine.
 
 ### Database sessions
 
@@ -161,6 +161,8 @@ A project is a local git repository registered with Docter. The `projects` table
 | `GET /api/projects`           | Lists all projects, oldest first.                                             |
 | `GET /api/projects/{id}`      | Returns one project.                                                          |
 | `DELETE /api/projects/{id}`   | Removes the database record only (`204`). Files on disk are never touched.    |
+| `POST /api/projects/{id}/index` | Starts a background MCP `index_repo {path}` job (`202`); returns `409` (`index_running`) if one is already running for this project. |
+| `GET /api/projects/{id}/index/status` | Returns `{status, progress, message, indexed_at, error}`. Unknown projects return `404`. |
 
 Validation for `POST /api/projects`. Every error uses the standard error shape:
 
@@ -177,6 +179,22 @@ Validation for `POST /api/projects`. Every error uses the standard error shape:
 The path is resolved before it is stored, so symlinks and `.` segments map to the same project. `current_branch` is `null` for a detached HEAD.
 
 A dirty working tree, including untracked files, does not block registration. The response has `is_dirty: true` and a message in `warnings`.
+
+### Indexing jobs
+
+The app-wide `IndexingService` owns one asyncio task per active project. Jobs use their
+own database sessions, not request sessions. MCP progress notifications with a positive
+total are converted to percentages and clamped to 0-100; notifications without a total
+update the message but leave the percentage unchanged. Success sets `index_status`
+to `done`, progress to 100, and `indexed_at` to the current UTC time. Tool errors,
+transport failures, and timeouts set the status to `failed` and expose an error message.
+The indexing request timeout is `Settings.INDEX_TIMEOUT_S` (one hour).
+
+Progress, messages, and errors are in memory and reset on application restart; project
+status and the last successful `indexed_at` are persisted. A failed re-index preserves
+the previous successful timestamp. Completed or failed jobs can be started again.
+Graceful shutdown cancels active jobs and marks them failed before closing the database.
+The registry is process-local: run a single backend worker.
 
 ## MCP client
 

@@ -60,3 +60,13 @@ class ProjectCreated(ProjectRead):
 
     is_dirty: bool
     warnings: list[str]
+
+
+class ProjectIndexStatus(BaseModel):
+    """Current indexing job state, including live MCP progress."""
+
+    status: IndexStatus
+    progress: float = Field(ge=0, le=100)
+    message: str | None = None
+    indexed_at: datetime | None = None
+    error: str | None = None

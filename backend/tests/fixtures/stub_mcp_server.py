@@ -5,15 +5,18 @@ Run as a script (``python stub_mcp_server.py``); it serves over stdio. If the
 there on startup so tests can kill it to simulate a crash.
 """
 
+import argparse
 import asyncio
 import os
 from pathlib import Path
 from typing import Any
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel
 
 PID_FILE_ENV = "STUB_MCP_PID_FILE"
+INDEX_CONTROL_DIR: Path | None = None
 
 server = MCPServer("docter-stub")
 
@@ -38,6 +41,12 @@ async def index_repo(path: str, ctx: Context[Any, Any], steps: int = 3, delay: f
     for step in range(1, steps + 1):
         await asyncio.sleep(delay)
         await ctx.report_progress(step, steps, f"Indexed {step}/{steps}")
+        if INDEX_CONTROL_DIR is not None and step == 1:
+            (INDEX_CONTROL_DIR / "path").write_text(path)
+            while not (INDEX_CONTROL_DIR / "release").exists():  # noqa: ASYNC110 - cross-process gate
+                await asyncio.sleep(0.01)
+    if INDEX_CONTROL_DIR is not None and (INDEX_CONTROL_DIR / "fail").exists():
+        raise ToolError("Stub indexing failed")
     return f"Indexed {path}"
 
 
@@ -49,6 +58,12 @@ def propose_patch(file_path: str, patch: str, rationale: str) -> ProposedPatch:
 
 def main() -> None:
     """Serve the stub tools over stdio."""
+    global INDEX_CONTROL_DIR
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index-control-dir", type=Path)
+    INDEX_CONTROL_DIR = parser.parse_args().index_control_dir
+    if INDEX_CONTROL_DIR is not None:
+        (INDEX_CONTROL_DIR / "pid").write_text(str(os.getpid()))
     pid_file = os.environ.get(PID_FILE_ENV)
     if pid_file:
         Path(pid_file).write_text(str(os.getpid()))
