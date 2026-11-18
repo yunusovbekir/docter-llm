@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     INDEX_TIMEOUT_S: ClassVar[float] = 3600.0
     CHAT_EVENT_BUFFER_SIZE: ClassVar[int] = 100
     SHUTDOWN_TIMEOUT_S: ClassVar[float] = 10.0
+    GIT_RATIONALE_LENGTH: ClassVar[int] = 72
     CONNECTION_LOST_ERRORS: ClassVar[tuple[type[Exception], ...]] = (
         anyio.ClosedResourceError,
         anyio.BrokenResourceError,

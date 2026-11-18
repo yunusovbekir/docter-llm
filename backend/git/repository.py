@@ -25,7 +25,7 @@ class NotRepositoryRootError(DocterError):
 
 
 class GitOperationError(DocterError):
-    """A git command failed while inspecting the repository."""
+    """A Git command could not complete a repository operation."""
 
     code = "git_error"
 

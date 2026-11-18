@@ -15,6 +15,7 @@ from backend.api import settings as settings_api
 from backend.config import Settings, get_settings
 from backend.db import create_all, create_engine, create_sessionmaker
 from backend.errors import register_exception_handlers
+from backend.git.service import GitService
 from backend.llm import LLMGateway
 from backend.llm.sampling import SamplingHandler
 from backend.logging_config import configure_logging
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         sessionmaker = create_sessionmaker(engine)
         app.state.sessionmaker = sessionmaker
+        app.state.git = GitService(sessionmaker, resolved.worktrees_dir)
 
         async def gateway_factory() -> LLMGateway:
             async with sessionmaker() as session:

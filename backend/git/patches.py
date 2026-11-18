@@ -3,12 +3,13 @@
 import codecs
 import os
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from tempfile import TemporaryDirectory
 
-from unidiff import PatchSet, UnidiffParseError
+from unidiff import PatchedFile, PatchSet, UnidiffParseError
 
 from backend.config import Settings
 from backend.errors import DocterError
@@ -43,33 +44,9 @@ def validate_patch(repo: Path, change: ProposePatchOutput) -> ValidatedPatch:
 
 
 def _validate_patch(root: Path, change: ProposePatchOutput) -> ValidatedPatch:
-    relative, target = _resolve_path(root, change.file_path)
-    try:
-        patch_set = PatchSet(StringIO(change.patch, newline="\n"))
-    except UnidiffParseError as exc:
-        raise InvalidPatchError(f"Malformed unified diff: {exc}. Regenerate the patch.") from exc
-    if len(patch_set) != 1:
-        raise InvalidPatchError("Supply a unified diff for exactly one file.")
-    patched = patch_set[0]
-    if patched.is_binary_file or (not patched and not patched.is_added_file):
-        raise InvalidPatchError("Supply a nonempty text patch or an empty new-file patch.")
-    for path, prefix in ((patched.source_file, "a/"), (patched.target_file, "b/")):
-        if path == "/dev/null":
-            continue
-        decoded = _decode_path(path)
-        candidate, _ = _resolve_path(root, decoded.removeprefix(prefix))
-        if candidate != relative:
-            raise InvalidPatchError("Patch paths must match file_path; renames are not supported.")
+    relative, target, patched = _parse_patch(root, change.file_path, change.patch)
     if change.is_new_file != patched.is_added_file:
         raise InvalidPatchError("is_new_file must match the patch's creation of a new file.")
-    for line in patched.patch_info or ():
-        if line.startswith(("rename ", "copy ", "old mode ", "new mode ")):
-            raise InvalidPatchError("Only file content changes are supported.")
-        has_mode = line.startswith(("new file mode ", "deleted file mode ")) or (
-            line.startswith("index ") and len(line.split()) == 3
-        )
-        if has_mode and line.split()[-1] not in {"100644", "100755"}:
-            raise InvalidPatchError("Only regular text files may be proposed.")
     if not patched.is_added_file and not target.is_file():
         raise InvalidPatchError("The patch's source must be an existing regular text file.")
 
@@ -99,6 +76,75 @@ def _validate_patch(root: Path, change: ProposePatchOutput) -> ValidatedPatch:
     if len(headers) != len(patched):
         raise InvalidPatchError("Patch hunk headers could not be parsed consistently.")
     return ValidatedPatch(relative, original_content, proposed.decode("utf-8"), headers)
+
+
+def filter_patch(
+    repo: Path, file_path: str, patch: str, hunk_indices: Sequence[int] | None = None
+) -> str:
+    """Build a safe single-file patch containing only the selected zero-based hunks.
+
+    This performs filesystem checks; async callers must use ``asyncio.to_thread``.
+    Omitted indices select all hunks. An empty selection is allowed only for a
+    hunkless empty-file creation.
+    """
+    try:
+        _, _, patched = _parse_patch(repo.resolve(strict=True), file_path, patch)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise InvalidPatchError(f"Cannot filter patch: {exc}.") from exc
+    indices = list(range(len(patched))) if hunk_indices is None else list(hunk_indices)
+    selected = set(indices)
+    if (
+        len(selected) != len(indices)
+        or any(type(index) is not int or index < 0 or index >= len(patched) for index in selected)
+        or (not selected and len(patched) > 0)
+    ):
+        raise InvalidPatchError("Select distinct, valid zero-based hunk indices.")
+    omitted_delta = 0
+    hunks = []
+    for index, hunk in enumerate(patched):
+        if index in selected:
+            hunk.target_start -= omitted_delta
+            hunks.append(hunk)
+        else:
+            omitted_delta += hunk.target_length - hunk.source_length
+    patched[:] = hunks
+    # A partial deletion edits the file rather than removing it.
+    if patched.is_removed_file and omitted_delta:
+        patched.target_file = f"b/{file_path}"
+        if patched.patch_info is not None:
+            patched.patch_info[:] = [
+                line for line in patched.patch_info if not line.startswith("deleted file mode ")
+            ]
+    return str(patched)
+
+
+def _parse_patch(root: Path, file_path: str, patch: str) -> tuple[str, Path, PatchedFile]:
+    relative, target = _resolve_path(root, file_path)
+    try:
+        patch_set = PatchSet(StringIO(patch, newline="\n"))
+    except UnidiffParseError as exc:
+        raise InvalidPatchError(f"Malformed unified diff: {exc}. Regenerate the patch.") from exc
+    if len(patch_set) != 1:
+        raise InvalidPatchError("Supply a unified diff for exactly one file.")
+    patched = patch_set[0]
+    if patched.is_binary_file or (not patched and not patched.is_added_file):
+        raise InvalidPatchError("Supply a nonempty text patch or an empty new-file patch.")
+    for path, prefix in ((patched.source_file, "a/"), (patched.target_file, "b/")):
+        if path == "/dev/null":
+            continue
+        decoded = _decode_path(path)
+        candidate, _ = _resolve_path(root, decoded.removeprefix(prefix))
+        if candidate != relative:
+            raise InvalidPatchError("Patch paths must match file_path; renames are not supported.")
+    for line in patched.patch_info or ():
+        if line.startswith(("rename ", "copy ", "old mode ", "new mode ")):
+            raise InvalidPatchError("Only file content changes are supported.")
+        has_mode = line.startswith(("new file mode ", "deleted file mode ")) or (
+            line.startswith("index ") and len(line.split()) == 3
+        )
+        if has_mode and line.split()[-1] not in {"100644", "100755"}:
+            raise InvalidPatchError("Only regular text files may be proposed.")
+    return relative, target, patched
 
 
 def _resolve_path(root: Path, path: str) -> tuple[str, Path]:

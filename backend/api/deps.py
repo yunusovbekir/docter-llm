@@ -6,6 +6,7 @@ from fastapi import Depends, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.db import get_session
+from backend.git.service import GitService
 from backend.mcp_client import MCPManager
 from backend.services.indexing import IndexingService
 from backend.services.projects import ProjectService
@@ -65,3 +66,12 @@ def get_session_service(request: Request) -> SessionService:
 
 
 SessionServiceDep = Annotated[SessionService, Depends(get_session_service)]
+
+
+def get_git_service(request: Request) -> GitService:
+    """Provide the app-wide Git service and per-session approval locks."""
+    service: GitService = request.app.state.git
+    return service
+
+
+GitServiceDep = Annotated[GitService, Depends(get_git_service)]
