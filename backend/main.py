@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend import __version__
 from backend.api import health
 from backend.api import projects as projects_api
+from backend.api import sessions as sessions_api
 from backend.api import settings as settings_api
 from backend.config import Settings, get_settings
 from backend.db import create_all, create_engine, create_sessionmaker
@@ -20,6 +21,7 @@ from backend.logging_config import configure_logging
 from backend.mcp_client import MCPManager
 from backend.services.indexing import IndexingService
 from backend.services.secrets import ApiKeyStore
+from backend.services.sessions import SessionService
 from backend.services.settings import SettingsService
 from backend.static import SPAStaticFiles
 
@@ -56,10 +58,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.mcp = mcp
         indexing = IndexingService(app.state.sessionmaker, mcp)
         app.state.indexing = indexing
+        sessions = SessionService(sessionmaker, mcp)
+        await sessions.recover()
+        app.state.sessions = sessions
         logger.info("Docter started (data_dir=%s)", resolved.data_dir)
         try:
             yield
         finally:
+            await sessions.close()
             await indexing.close()
             await mcp.close()
             await engine.dispose()
@@ -79,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(settings_api.router)
     app.include_router(projects_api.router)
+    app.include_router(sessions_api.router)
 
     if resolved.frontend_dist_dir.is_dir():
         app.mount("/", SPAStaticFiles(resolved.frontend_dist_dir), name="frontend")

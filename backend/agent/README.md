@@ -54,6 +54,14 @@ stream, and does not emit a misleading terminal event or close the shared MCP
 manager. Consumers stopping iteration early must close the iterator, as above.
 Already accepted proposals remain in the sink.
 
+The optional constructor callback `on_message(message)` is awaited with a copy
+of each completed assistant/tool message in LLM history format. Assistant
+messages are reported after a successful LLM stream and before executing their
+tool calls; tool replies are reported before their `tool_result` events. The
+final assistant message is reported before `done`. Partial completions and the
+user message are not reported. The session service uses this callback to persist
+completed messages without reconstructing boundaries from token events.
+
 ## Change sinks
 
 `ChangeSink.add(change)` is async and returns `Ok()` or `Error(message)` from

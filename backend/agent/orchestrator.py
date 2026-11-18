@@ -1,7 +1,7 @@
 """Cancellable, mode-restricted orchestration of streamed LLM and MCP calls."""
 
 import json
-from collections.abc import AsyncGenerator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from contextlib import aclosing
 from copy import deepcopy
 from typing import Any, Protocol
@@ -45,11 +45,13 @@ class Orchestrator:
         change_sink: ChangeSink,
         *,
         max_agent_steps: int = Settings.DEFAULT_MAX_AGENT_STEPS,
+        on_message: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         """Inject a gateway, shared MCP manager, scoped sink, and saved step limit."""
         self._llm = llm
         self._mcp = mcp
         self._change_sink = change_sink
+        self._on_message = on_message
         self._max_agent_steps = TypeAdapter(MaxAgentSteps).validate_python(
             max_agent_steps, strict=True
         )
@@ -108,27 +110,29 @@ class Orchestrator:
                             finished = True
                 if not finished:
                     raise LLMError("The LLM stream ended before completion")
+                assistant: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": "".join(text) or None,
+                }
+                if calls:
+                    assistant["tool_calls"] = [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": json.dumps(call.arguments),
+                            },
+                        }
+                        for call in calls
+                    ]
+                if self._on_message is not None:
+                    await self._on_message(deepcopy(assistant))
+                messages.append(assistant)
                 if not calls:
                     yield events.Done(reason="completed", steps=steps)
                     return
 
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": "".join(text) or None,
-                        "tool_calls": [
-                            {
-                                "id": call.id,
-                                "type": "function",
-                                "function": {
-                                    "name": call.name,
-                                    "arguments": json.dumps(call.arguments),
-                                },
-                            }
-                            for call in calls
-                        ],
-                    }
-                )
                 for call in calls:
                     result, change, warnings = await self._execute(call, allowed)
                     content = result.text
@@ -136,7 +140,10 @@ class Orchestrator:
                         content = json.dumps(result.structured)
                     if result.is_error:
                         content = "Tool error: " + (content or "The tool failed without a message")
-                    messages.append({"role": "tool", "tool_call_id": call.id, "content": content})
+                    tool_message = {"role": "tool", "tool_call_id": call.id, "content": content}
+                    if self._on_message is not None:
+                        await self._on_message(deepcopy(tool_message))
+                    messages.append(tool_message)
                     yield events.ToolResult(
                         id=call.id,
                         name=call.name,
