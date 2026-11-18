@@ -90,6 +90,10 @@ class Sandbox:
         """Check existence only after enforcing the sandbox boundary."""
         return self.resolve(path).is_file()
 
+    def is_dir(self, path: str) -> bool:
+        """Check for a directory only after enforcing the sandbox boundary."""
+        return self.resolve(path).is_dir()
+
     def exists(self, path: str) -> bool:
         """Check whether a confined path exists, including non-regular files."""
         return self.resolve(path).exists()

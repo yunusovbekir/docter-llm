@@ -20,6 +20,7 @@ class Config:
         ToolName.GET_SYMBOL,
         ToolName.READ_FILE,
         ToolName.LIST_DOC_FILES,
+        ToolName.FIND_DOC_GAPS,
     )
     DEFAULT_STYLE_GUIDE: ClassVar[str] = """# Documentation style
 
