@@ -68,9 +68,9 @@ These paths are derived from `data_dir`. They are created at startup.
 | `errors.py`         | `DocterError` base class and the global exception handlers                   |
 | `logging_config.py` | Stdlib logging to the console and `logs_dir`                                   |
 | `static.py`         | `SPAStaticFiles`: serves `frontend/dist` and falls back to `index.html`        |
-| `api/`              | HTTP routers (`health.py`, `settings.py`, `projects.py`, `sessions.py`) and shared dependencies (`deps.py`) |
+| `api/`              | HTTP routers (`health.py`, `settings.py`, `projects.py`, `sessions.py`, `changes.py`), shared SSE transport, and dependencies (`deps.py`) |
 | `models/`           | SQLModel tables, the separate Pydantic request/response schemas, and `UTCDateTime` |
-| `services/`         | Settings, projects, indexing jobs, session/chat workers, persisted changes, and the keyring-backed `ApiKeyStore` |
+| `services/`         | Settings, projects, indexing jobs, session/chat workers, persisted changes/reviews, and the keyring-backed `ApiKeyStore` |
 | `git/`              | Repository inspection, patch validation/isolated previews, and session worktree approvals |
 | `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
 | `llm/`             | LiteLLM gateway, typed completion events, MCP tool conversion, and sampling callback |
@@ -78,7 +78,7 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ### Lifespan
 
-At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), a `SessionService` (`sessions`), and a `GitService` (`git`) on `app.state`. It resets stale session run flags to `idle`. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
+At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), a `SessionService` (`sessions`), a `GitService` (`git`), and a `ReviewService` (`review`) on `app.state`. It resets stale session run flags to `idle`. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
 
 ### Database sessions
 
@@ -288,12 +288,11 @@ and immutable UTF-8 `original_content`/`proposed_content` snapshots.
 `change_hunks` stores `id`, `change_id`, zero-based `index`, the original hunk
 `header`, and `status`. Hunks are parsed with `unidiff` and persisted in order.
 Changes and hunks start as `pending`; the status values are `pending`, `approved`,
-`denied`, `partial`, `applied`, `conflict`, and `revised`. This endpoint is
-read-only; approval is provided by the Git service, not an HTTP review endpoint.
+`denied`, `partial`, `applied`, `conflict`, and `revised`.
 
 `GET /api/sessions/{id}/changes` returns an array of change sets, each containing
-`changes`, each containing `hunks`. Changes are ordered by creation time and id;
-hunks are ordered by index. A session with no runs returns `[]`, and unknown
+`changes`, each containing `hunks` and `comments`. Changes and comments are ordered
+by creation time and id; hunks are ordered by index. A session with no runs returns `[]`, and unknown
 sessions return `404` (`session_not_found`). The snapshots are captured at
 acceptance, so fetching a proposal never depends on the current working tree.
 New files have empty original content; deleted files have empty proposed content.
@@ -306,6 +305,55 @@ mode-only changes are rejected. Git renders the preview in a disposable director
 never in the project; line endings and missing final newlines are preserved.
 Rejections return an actionable sink `Error`, becoming a tool error so the agent
 can retry. A rejected proposal stores neither a change nor any hunks.
+
+### Review API and revisions
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/changes/{id}/approve {hunks?}` | Applies and commits selected zero-based hunks through `GitService.apply_hunks`; returns the updated change with hunks and comments. |
+| `POST /api/changes/{id}/deny {hunks?}` | Denies selected hunks without touching Git; returns the updated change. |
+| `POST /api/sessions/{id}/changes/approve-all` | Applies remaining reviewable changes in creation order; returns an array of the changes attempted. |
+| `POST /api/changes/{id}/comment {text, hunk_index?}` | Stores feedback, marks the proposal `revised`, and streams an agent revision run as SSE. |
+
+For approval and denial, omit the body, use `{}`, or omit/null `hunks` to select
+all remaining reviewable hunks. Explicit selections must contain distinct,
+in-range integers; an empty selection is invalid except for a hunkless empty-file
+creation. Applied and denied hunks are preserved, not re-reviewed. All applied
+hunks make the change `applied`; all denied hunks make it `denied`; a mixture or
+unfinished review makes it `partial`. Application failures retain the Git service's
+`conflict` state. Approve-all skips applied, denied, and revised proposals and
+already-decided hunks; it is a sequence of durable per-change commits, not an
+all-or-nothing transaction. Responses include conflicts; an unexpected Git error
+stops the batch, leaving earlier commits intact.
+
+Unknown changes return `404` (`change_not_found`). Trying to overwrite a final
+decision, approve/deny a revised proposal, or review a change with no remaining
+hunks returns `409` (`change_not_reviewable`). Invalid hunk selections return
+`400` (`invalid_patch`); invalid request types, negative indices, blank comment
+text, and unknown fields return `422` (`validation_error`).
+
+`comments` stores `id`, indexed `change_id` (foreign key to `changes.id`),
+nullable zero-based `hunk_index`, `text`, and UTC `created_at`. Omitted/null
+`hunk_index` addresses the whole proposal. Text whitespace is preserved.
+The comment, the parent's `revised` status, the user message, and the new run's
+change set are committed together before SSE starts. A busy session returns
+`409` (`session_running`) without saving feedback or changing the proposal.
+
+The revision prompt includes the original patch, file path, comment, and optional
+hunk index and instructs the agent to call `propose_patch` again. Every accepted
+proposal in that run has `parent_change_id` pointing to the commented change.
+Revisions can themselves receive comments, forming a chain; ordinary chat runs
+do not inherit a revision parent. Failed/cancelled runs retain their feedback
+and change set, and another comment on the revised parent can retry the revision.
+Applied or denied proposals cannot be revised. Original patches and snapshots
+are never overwritten.
+
+Revision runs use the same event types, run-scoped event ids, persistence,
+single-active-run guard, cancellation, and disconnect cleanup as chat. A revision
+does not apply anything to Git; its new proposals still require approval.
+The app-wide `ReviewService` serializes decisions and revision setup per session;
+different sessions remain independent. Like chat and Git locks, review locks
+require a single backend worker.
 
 ### Git approvals
 

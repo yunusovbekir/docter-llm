@@ -18,13 +18,14 @@ from backend.agent import Mode, Orchestrator, events
 from backend.config import Settings
 from backend.errors import DocterError
 from backend.mcp_client import MCPManager
-from backend.models import AppSettings, ChangeSet, Message, Project, Session
+from backend.models import AppSettings, ChangeSet, Comment, Message, Project, Session
+from backend.models.change import ChangeStatus
 from backend.models.changes import ChangeSetRead
 from backend.models.chat import MessageRead, SessionCreate, SessionDetail, SessionRead
 from backend.models.project import IndexStatus
 from backend.models.session import RunStatus
 from backend.models.types import utcnow
-from backend.services.changes import DbChangeSink, list_change_sets
+from backend.services.changes import DbChangeSink, get_change, list_change_sets
 from backend.services.projects import ProjectNotFoundError
 from backend.services.secrets import ApiKeyStore
 from backend.services.settings import SettingsService
@@ -113,6 +114,15 @@ class SessionService:
 
     async def start_chat(self, session_id: int, message: str) -> ChatRun:
         """Reserve the session and persist the user before sending SSE headers."""
+        return await self._start_run(session_id, message)
+
+    async def start_revision(self, session_id: int, message: str, comment: Comment) -> ChatRun:
+        """Atomically save feedback, supersede its proposal, and start a chat worker."""
+        return await self._start_run(session_id, message, comment)
+
+    async def _start_run(
+        self, session_id: int, message: str, comment: Comment | None = None
+    ) -> ChatRun:
         async with self._lock, self._sessions() as db:
             row = await self._get_row(db, session_id)
             if row.run_status == RunStatus.RUNNING:
@@ -121,6 +131,10 @@ class SessionService:
             mode = Mode(row.mode)
             mode.validate_params(row.mode_params)
             history = _history(await self._messages(db, session_id))
+            if comment is not None:
+                parent = await get_change(db, comment.change_id)
+                parent.status = ChangeStatus.REVISED
+                db.add(comment)
             run_id = uuid4().hex
             change_set = ChangeSet(session_id=session_id, run_id=run_id)
             db.add(change_set)
@@ -133,7 +147,16 @@ class SessionService:
             )
             cancel_scope = anyio.CancelScope()
             task = asyncio.create_task(
-                self._run(row, project, history, message, send, cancel_scope, change_set.id),
+                self._run(
+                    row,
+                    project,
+                    history,
+                    message,
+                    send,
+                    cancel_scope,
+                    change_set.id,
+                    comment.change_id if comment is not None else None,
+                ),
                 name=f"docter-chat-{session_id}",
             )
             run = ChatRun(session_id, run_id, receive, task, cancel_scope)
@@ -176,6 +199,7 @@ class SessionService:
         send: MemoryObjectSendStream[events.AgentEvent],
         cancel_scope: anyio.CancelScope,
         change_set_id: int,
+        parent_change_id: int | None,
     ) -> None:
         assert row.id is not None
         session_id = row.id
@@ -195,7 +219,9 @@ class SessionService:
                     orchestrator = Orchestrator(
                         gateway,
                         self._mcp,
-                        DbChangeSink(self._sessions, change_set_id),
+                        DbChangeSink(
+                            self._sessions, change_set_id, parent_change_id=parent_change_id
+                        ),
                         max_agent_steps=settings.max_agent_steps,
                         on_message=on_message,
                     )

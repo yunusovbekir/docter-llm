@@ -8,25 +8,18 @@ from collections.abc import Coroutine, Sequence
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.config import Settings
-from backend.errors import DocterError
 from backend.git.patches import InvalidPatchError, filter_patch
 from backend.git.repository import GitOperationError
-from backend.models import Change, ChangeHunk, ChangeSet, Project, Session
+from backend.models import Change, ChangeSet, Project, Session
 from backend.models.change import ChangeStatus
+from backend.services.changes import ChangeNotFoundError as ChangeNotFoundError
+from backend.services.changes import get_change, get_hunks
 from backend.services.sessions import SessionNotFoundError
 
 logger = logging.getLogger(__name__)
-
-
-class ChangeNotFoundError(DocterError):
-    """The requested persisted proposal no longer exists."""
-
-    status_code = 404
-    code = "change_not_found"
 
 
 class GitService:
@@ -56,22 +49,16 @@ class GitService:
 
     async def _apply(self, change_id: int, indices: Sequence[int]) -> Change:
         async with self._sessions() as db:
-            change = await self._change(db, change_id)
+            change = await get_change(db, change_id)
             change_set = await db.get(ChangeSet, change.change_set_id)
             if change_set is None:
                 raise GitOperationError("The change's session no longer exists.")
             session_id = change_set.session_id
 
         async with self._locks.setdefault(session_id, asyncio.Lock()), self._sessions() as db:
-            change = await self._change(db, change_id)
+            change = await get_change(db, change_id)
             session, project = await self._context(db, session_id)
-            hunks = (
-                await db.exec(
-                    select(ChangeHunk)
-                    .where(ChangeHunk.change_id == change_id)
-                    .order_by(col(ChangeHunk.index))
-                )
-            ).all()
+            hunks = await get_hunks(db, change_id)
             if change.status == ChangeStatus.APPLIED or any(
                 hunk.index in indices and hunk.status == ChangeStatus.APPLIED for hunk in hunks
             ):
@@ -115,13 +102,6 @@ class GitService:
                     self._worktrees_dir / str(session_id),
                     session.branch_name,
                 )
-
-    @staticmethod
-    async def _change(db: AsyncSession, change_id: int) -> Change:
-        change = await db.get(Change, change_id)
-        if change is None:
-            raise ChangeNotFoundError(f"Change {change_id} not found")
-        return change
 
     @staticmethod
     async def _context(db: AsyncSession, session_id: int) -> tuple[Session, Project]:

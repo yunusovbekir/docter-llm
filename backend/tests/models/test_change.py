@@ -5,7 +5,7 @@ from sqlalchemy import UniqueConstraint
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from backend.models import Change, ChangeHunk, ChangeSet, Session
+from backend.models import Change, ChangeHunk, ChangeSet, Comment, Session
 from backend.models.change import ChangeStatus
 
 
@@ -83,3 +83,39 @@ def test_change_table_links_indexes_and_hunk_order_constraint() -> None:
         and {column.name for column in constraint.columns} == {"change_id", "index"}
         for constraint in tables["change_hunks"].constraints
     )
+    assert {key.target_fullname for key in tables["comments"].foreign_keys} == {"changes.id"}
+    assert tables["comments"].c.change_id.index
+
+
+@pytest.mark.parametrize("hunk_index", [None, 0])
+async def test_comments_round_trip(
+    db_session: AsyncSession, chat_session: Session, hunk_index: int | None
+) -> None:
+    assert chat_session.id is not None
+    change_set = ChangeSet(session_id=chat_session.id, run_id="comment-run")
+    db_session.add(change_set)
+    await db_session.flush()
+    assert change_set.id is not None
+    change = Change(
+        change_set_id=change_set.id,
+        file_path="README.md",
+        patch="patch",
+        rationale="rationale",
+        original_content="before",
+        proposed_content="after",
+    )
+    db_session.add(change)
+    await db_session.flush()
+    assert change.id is not None
+    comment = Comment(change_id=change.id, hunk_index=hunk_index, text="  More detail\n")
+    db_session.add(comment)
+    await db_session.commit()
+    db_session.expunge_all()
+
+    saved = await db_session.get(Comment, comment.id)
+
+    assert saved is not None
+    assert saved.change_id == change.id
+    assert saved.hunk_index == hunk_index
+    assert saved.text == "  More detail\n"
+    assert saved.created_at.tzinfo is UTC

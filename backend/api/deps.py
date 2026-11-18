@@ -10,6 +10,7 @@ from backend.git.service import GitService
 from backend.mcp_client import MCPManager
 from backend.services.indexing import IndexingService
 from backend.services.projects import ProjectService
+from backend.services.review import ReviewService
 from backend.services.secrets import ApiKeyStore
 from backend.services.sessions import SessionService
 from backend.services.settings import SettingsService
@@ -75,3 +76,12 @@ def get_git_service(request: Request) -> GitService:
 
 
 GitServiceDep = Annotated[GitService, Depends(get_git_service)]
+
+
+def get_review_service(request: Request) -> ReviewService:
+    """Provide app-wide review decisions and per-session review locks."""
+    service: ReviewService = request.app.state.review
+    return service
+
+
+ReviewServiceDep = Annotated[ReviewService, Depends(get_review_service)]
