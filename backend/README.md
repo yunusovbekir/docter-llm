@@ -198,6 +198,23 @@ the previous successful timestamp. Completed or failed jobs can be started again
 Graceful shutdown cancels active jobs and marks them failed before closing the database.
 The registry is process-local: run a single backend worker.
 
+## Session and message tables
+
+`Session` (`models/session.py`, table `sessions`) stores `id`, `project_id` (an
+indexed foreign key to `projects.id`), `mode`, `mode_params` (a JSON object,
+default `{}`), nullable `branch_name`, `run_status` (`idle` by default, or
+`running`), `created_at`, and `updated_at`. Both timestamps use UTC;
+`updated_at` advances automatically when the session row is updated.
+
+`Message` (`models/message.py`, table `messages`) stores `id`, `session_id` (an
+indexed foreign key to `sessions.id`), `role`, nullable text `content`, nullable
+`tool_calls` (a JSON array), nullable `tool_call_id`, and UTC `created_at`.
+Assistant tool-call messages can omit content; tool replies use `tool_call_id`
+to correlate with a call in the assistant's `tool_calls`.
+
+Both tables are registered for startup schema creation. This persistence step
+does not add session endpoints, chat streaming, or branch creation.
+
 ## MCP client
 
 `MCPManager` (`mcp_client/manager.py`) runs the Docter MCP server as a subprocess, started with `DOCTER_MCP_COMMAND`, and talks to it over stdio with the official `mcp` SDK. Inject it with `MCPManagerDep` from `api/deps.py`.
