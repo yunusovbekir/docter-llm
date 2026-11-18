@@ -9,9 +9,23 @@ from http import HTTPStatus
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
+
+
+class ErrorDetail(BaseModel):
+    """Stable machine-readable code and human-readable error message."""
+
+    code: str
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    """The error envelope shared by domain, HTTP, and validation failures."""
+
+    error: ErrorDetail
 
 
 class DocterError(Exception):
@@ -61,8 +75,18 @@ async def _handle_validation_error(_: Request, exc: Exception) -> JSONResponse:
 
 
 async def _handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
-    logger.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
-    return error_response(500, "internal_error", "Internal server error")
+    request_id = request.state.request_id
+    logger.error(
+        "Unhandled error on %s %s (request_id=%s)",
+        request.method,
+        request.url.path,
+        request_id,
+        exc_info=exc,
+    )
+    response = error_response(500, "internal_error", "Internal server error")
+    # Starlette's server-error handler runs outside user middleware.
+    response.headers["X-Request-ID"] = request_id
+    return response
 
 
 def register_exception_handlers(app: FastAPI) -> None:
