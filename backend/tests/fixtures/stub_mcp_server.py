@@ -14,20 +14,13 @@ from typing import Any
 from mcp import types
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel
+
+from docter_contract import ProposePatchOutput, ReadFileOutput
 
 PID_FILE_ENV = "STUB_MCP_PID_FILE"
 INDEX_CONTROL_DIR: Path | None = None
 
 server = MCPServer("docter-stub")
-
-
-class ProposedPatch(BaseModel):
-    """Structured output of ``propose_patch``."""
-
-    file_path: str
-    patch: str
-    rationale: str
 
 
 @server.tool()
@@ -52,9 +45,11 @@ async def index_repo(path: str, ctx: Context[Any, Any], steps: int = 3, delay: f
 
 
 @server.tool()
-def propose_patch(file_path: str, patch: str, rationale: str) -> ProposedPatch:
+def propose_patch(file_path: str, patch: str, rationale: str) -> ProposePatchOutput:
     """Return the proposed patch as structured output."""
-    return ProposedPatch(file_path=file_path, patch=patch, rationale=rationale)
+    return ProposePatchOutput(
+        file_path=file_path, patch=patch, rationale=rationale, is_new_file=False
+    )
 
 
 def main() -> None:
@@ -63,8 +58,21 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--index-control-dir", type=Path)
     parser.add_argument("--sampling", action="store_true")
+    parser.add_argument("--agent-tools", action="store_true")
     args = parser.parse_args()
     INDEX_CONTROL_DIR = args.index_control_dir
+    if args.agent_tools:
+
+        @server.tool()
+        async def read_file(repo: str, file_path: str, delay: float = 0.0) -> ReadFileOutput:
+            """Return stub documentation, or a deterministic missing-file error."""
+            await asyncio.sleep(delay)
+            if file_path == "missing.md":
+                raise ToolError("File not found: missing.md")
+            return ReadFileOutput(
+                file_path=file_path, content=f"Documentation from {repo}", total_lines=1
+            )
+
     if args.sampling:
 
         @server.tool()

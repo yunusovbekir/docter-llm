@@ -666,6 +666,7 @@ version = "0.1.0"
 source = { editable = "backend" }
 dependencies = [
     { name = "aiosqlite" },
+    { name = "docter-contract" },
     { name = "fastapi" },
     { name = "gitpython" },
     { name = "keyring" },
@@ -681,6 +682,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "docter-contract", editable = "contract" },
     { name = "fastapi", specifier = ">=0.163.1" },
     { name = "gitpython", specifier = ">=3.2.1" },
     { name = "keyring", specifier = ">=25.7.0" },

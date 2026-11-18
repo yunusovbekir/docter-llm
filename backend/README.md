@@ -74,6 +74,7 @@ These paths are derived from `data_dir`. They are created at startup.
 | `git/`              | GitPython helpers (`repository.py`: read-only working-tree inspection)         |
 | `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
 | `llm/`             | LiteLLM gateway, typed completion events, MCP tool conversion, and sampling callback |
+| `agent/`           | [Mode policies, cancellable orchestration, typed events, and proposal sinks](agent/README.md) |
 
 ### Lifespan
 

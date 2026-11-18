@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiosqlite>=0.22.1",
+    "docter-contract",
     "fastapi>=0.163.1",
     "gitpython>=3.2.1",
     "keyring>=25.7.0",
@@ -29,7 +30,7 @@ build-backend = "hatchling.build"
 # The wheel ships its modules under a `backend/` prefix; the editable install puts the
 # workspace root on sys.path so `import backend` resolves to this directory.
 [tool.hatch.build.targets.wheel]
-include = ["/**/*.py"]
+include = ["/**/*.py", "/agent/prompts/*.md"]
 exclude = ["/tests"]
 sources = { "" = "backend" }
 dev-mode-dirs = [".."]
