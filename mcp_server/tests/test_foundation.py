@@ -10,6 +10,7 @@ import anyio
 import pytest
 import yaml
 from mcp import ClientSession, StdioServerParameters
+from mcp.client.session import SamplingFnT
 from mcp.client.stdio import stdio_client
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.shared.exceptions import MCPError
@@ -32,7 +33,9 @@ from docter_mcp.server import create_server
 
 
 @asynccontextmanager
-async def connected(repo: Path, config: Config | None = None) -> AsyncIterator[ClientSession]:
+async def connected(
+    repo: Path, config: Config | None = None, sampling_callback: SamplingFnT | None = None
+) -> AsyncIterator[ClientSession]:
     server = create_server(config or Config(), repo)
     async with (
         create_client_server_memory_streams() as (client_streams, server_streams),
@@ -43,7 +46,7 @@ async def connected(repo: Path, config: Config | None = None) -> AsyncIterator[C
             *server_streams,
             server._lowlevel_server.create_initialization_options(),
         )
-        async with ClientSession(*client_streams) as session:
+        async with ClientSession(*client_streams, sampling_callback=sampling_callback) as session:
             await session.initialize()
             yield session
         group.cancel_scope.cancel()
@@ -106,6 +109,7 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
             "check_doc_drift",
             "run_doc_examples",
             "propose_patch",
+            "translate_file",
         }
         for tool in discovered:
             spec = TOOL_SPECS[ToolName(tool.name)]
