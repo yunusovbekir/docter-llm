@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     LLM_RETRIES: ClassVar[int] = 2
     LLM_RETRY_BACKOFF_S: ClassVar[float] = 1.0
     INDEX_TIMEOUT_S: ClassVar[float] = 3600.0
+    CHAT_EVENT_BUFFER_SIZE: ClassVar[int] = 100
     SHUTDOWN_TIMEOUT_S: ClassVar[float] = 10.0
     CONNECTION_LOST_ERRORS: ClassVar[tuple[type[Exception], ...]] = (
         anyio.ClosedResourceError,

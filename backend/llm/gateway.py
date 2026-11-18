@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+import anyio
 import litellm
 from litellm.exceptions import ModelNotMappedError, NotFoundError, RateLimitError, Timeout
 from litellm.types.utils import ChatCompletionDeltaToolCall, ModelResponse, ModelResponseStream
@@ -108,7 +109,8 @@ class LLMGateway:
                                     call.name += delta.function.name or ""
                                     call.arguments += delta.function.arguments or ""
                 finally:
-                    await response.aclose()
+                    with anyio.CancelScope(shield=True):
+                        await response.aclose()
                 if not finished:
                     raise LLMError("The LLM stream ended before completion")
                 # Validate every call before exposing any of them to the caller.

@@ -68,9 +68,9 @@ These paths are derived from `data_dir`. They are created at startup.
 | `errors.py`         | `DocterError` base class and the global exception handlers                   |
 | `logging_config.py` | Stdlib logging to the console and `logs_dir`                                   |
 | `static.py`         | `SPAStaticFiles`: serves `frontend/dist` and falls back to `index.html`        |
-| `api/`              | HTTP routers (`health.py`, `settings.py`, `projects.py`) and shared dependencies (`deps.py`) |
+| `api/`              | HTTP routers (`health.py`, `settings.py`, `projects.py`, `sessions.py`) and shared dependencies (`deps.py`) |
 | `models/`           | SQLModel tables, the separate Pydantic request/response schemas, and `UTCDateTime` |
-| `services/`         | Business logic (`settings.py`, `projects.py`) and the keyring-backed `ApiKeyStore` (`secrets.py`) |
+| `services/`         | Settings, projects, indexing jobs, session/chat workers, and the keyring-backed `ApiKeyStore` |
 | `git/`              | GitPython helpers (`repository.py`: read-only working-tree inspection)         |
 | `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
 | `llm/`             | LiteLLM gateway, typed completion events, MCP tool conversion, and sampling callback |
@@ -78,7 +78,7 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ### Lifespan
 
-At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), and an `IndexingService` (`indexing`) on `app.state`. At shutdown it cancels and awaits indexing jobs, stops the MCP server, if running, and disposes of the engine.
+At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), and a `SessionService` (`sessions`) on `app.state`. It resets stale session run flags to `idle`. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
 
 ### Database sessions
 
@@ -198,7 +198,7 @@ the previous successful timestamp. Completed or failed jobs can be started again
 Graceful shutdown cancels active jobs and marks them failed before closing the database.
 The registry is process-local: run a single backend worker.
 
-## Session and message tables
+## Sessions and chat
 
 `Session` (`models/session.py`, table `sessions`) stores `id`, `project_id` (an
 indexed foreign key to `projects.id`), `mode`, `mode_params` (a JSON object,
@@ -212,8 +212,68 @@ indexed foreign key to `sessions.id`), `role`, nullable text `content`, nullable
 Assistant tool-call messages can omit content; tool replies use `tool_call_id`
 to correlate with a call in the assistant's `tool_calls`.
 
-Both tables are registered for startup schema creation. This persistence step
-does not add session endpoints, chat streaming, or branch creation.
+Both tables are registered for startup schema creation. API schemas are defined
+separately in `models/chat.py`. Creating a session does not create a git branch or
+modify the project.
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/sessions {project_id, mode, mode_params}` | Creates a session (`201`). Returns `409`, code `project_not_indexed`, unless the project's `index_status` is `done`. |
+| `GET /api/sessions/{id}` | Returns session fields plus `messages`, oldest first, with message id as the timestamp tie-breaker. |
+| `POST /api/sessions/{id}/chat {message}` | Persists the user message and returns an SSE stream. Returns `409`, code `session_running`, if the session already has an active run. |
+| `POST /api/sessions/{id}/cancel` | Cancels and awaits the active run (`204`). Already-idle sessions are unchanged. |
+
+Unknown sessions return `404` (`session_not_found`); unknown projects return
+`404` (`project_not_found`). Invalid bodies return `422` (`validation_error`).
+Modes use the [agent's policies](agent/README.md#modes), including validation of
+translation's `target_language` (`422`, `invalid_mode_params`). `mode_params`
+defaults to `{}`. Chat messages must contain non-whitespace text; their original
+whitespace is preserved.
+
+### SSE and persistence
+
+Chat uses `sse-starlette`. Each orchestrator event has an SSE `event` matching its
+`type`, JSON `data` containing the complete event, and a unique `id` consisting
+of a run id and a monotonically increasing sequence number:
+
+```text
+id: <run-id>:1
+event: token
+data: {"type":"token","text":"Hello"}
+
+id: <run-id>:2
+event: done
+data: {"type":"done","reason":"completed","steps":1}
+
+```
+
+The stream forwards all agent event types, including tool calls/results,
+proposals, warnings, errors, and completion. Before streaming starts, errors use
+the normal JSON HTTP error shape. Once streaming starts, failures emit `error`
+and `done` events; unexpected failures expose only `internal_error`, not internal
+exception details.
+
+`SessionService` owns one worker per active session and uses its own database
+sessions, not request-scoped sessions. It loads saved LLM settings and the
+keyring-backed provider key for each run. A bounded event buffer applies
+backpressure to slow clients. Different sessions can run concurrently. Like
+indexing, the worker registry is process-local: run a single backend worker.
+
+The user message is committed when the run is accepted. An optional orchestrator
+completion callback commits each whole assistant message before tool execution,
+each tool reply before its `tool_result` event, and the final assistant message
+before `done`. Partial assistant output is not saved. Subsequent runs replay
+persisted history without duplicating the new user message. If cancellation
+interrupted a tool batch, replay includes only calls with completed replies;
+the original persisted messages remain unchanged.
+
+Client disconnects, explicit cancellation, and application shutdown cancel and
+await the worker, close its LLM stream, and restore `run_status` to `idle`.
+Cancellation closes the SSE stream without synthesizing a successful `done`.
+Startup clears run flags left by a previous process. Event ids identify events
+but do not provide replay or reconnection; disconnecting cancels that run.
+Patch proposals are forwarded and remain in the tool-message history; no patches
+are applied and no persistent change-review workflow is added.
 
 ## MCP client
 

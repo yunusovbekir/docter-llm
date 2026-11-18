@@ -1,8 +1,10 @@
 import asyncio
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import Any
 from unittest.mock import AsyncMock
 
+import anyio
 import litellm
 import pytest
 from litellm.exceptions import AuthenticationError, RateLimitError, Timeout
@@ -35,6 +37,43 @@ class FakeStream:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+async def test_anyio_cancellation_waits_for_transport_close(
+    gateway: LLMGateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reading = asyncio.Event()
+
+    class BlockingStream(FakeStream):
+        async def __aiter__(self) -> AsyncIterator[ModelResponseStream]:
+            yield chunk({"content": "Partial"})
+            reading.set()
+            await asyncio.Event().wait()
+
+        async def aclose(self) -> None:
+            await anyio.lowlevel.checkpoint()
+            self.closed = True
+
+    stream = BlockingStream([])
+    monkeypatch.setattr(litellm, "acompletion", AsyncMock(return_value=stream))
+    scope = anyio.CancelScope()
+
+    async def consume() -> None:
+        with scope:
+            async with aclosing(gateway.stream_chat([])) as events:
+                async for _ in events:
+                    pass
+
+    task = asyncio.create_task(consume())
+    try:
+        async with asyncio.timeout(10):
+            await reading.wait()
+            scope.cancel()
+            await task
+        assert stream.closed
+    finally:
+        scope.cancel()
+        await task
 
 
 def chunk(

@@ -10,6 +10,7 @@ from backend.mcp_client import MCPManager
 from backend.services.indexing import IndexingService
 from backend.services.projects import ProjectService
 from backend.services.secrets import ApiKeyStore
+from backend.services.sessions import SessionService
 from backend.services.settings import SettingsService
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -55,3 +56,12 @@ def get_indexing_service(request: Request) -> IndexingService:
 
 
 IndexingServiceDep = Annotated[IndexingService, Depends(get_indexing_service)]
+
+
+def get_session_service(request: Request) -> SessionService:
+    """Provide the app-wide session service and chat worker registry."""
+    service: SessionService = request.app.state.sessions
+    return service
+
+
+SessionServiceDep = Annotated[SessionService, Depends(get_session_service)]
