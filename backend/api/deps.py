@@ -7,6 +7,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.db import get_session
 from backend.mcp_client import MCPManager
+from backend.services.indexing import IndexingService
 from backend.services.projects import ProjectService
 from backend.services.secrets import ApiKeyStore
 from backend.services.settings import SettingsService
@@ -45,3 +46,12 @@ def get_mcp_manager(request: Request) -> MCPManager:
 
 
 MCPManagerDep = Annotated[MCPManager, Depends(get_mcp_manager)]
+
+
+def get_indexing_service(request: Request) -> IndexingService:
+    """Provide the app-wide indexing task registry."""
+    service: IndexingService = request.app.state.indexing
+    return service
+
+
+IndexingServiceDep = Annotated[IndexingService, Depends(get_indexing_service)]

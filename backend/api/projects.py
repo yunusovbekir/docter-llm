@@ -4,8 +4,8 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter, status
 
-from backend.api.deps import ProjectServiceDep
-from backend.models.project import ProjectCreate, ProjectCreated, ProjectRead
+from backend.api.deps import IndexingServiceDep, ProjectServiceDep
+from backend.models.project import ProjectCreate, ProjectCreated, ProjectIndexStatus, ProjectRead
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -32,3 +32,15 @@ async def get_project(project_id: int, service: ProjectServiceDep) -> ProjectRea
 async def delete_project(project_id: int, service: ProjectServiceDep) -> None:
     """Remove the project record only; the repository on disk is left untouched."""
     await service.delete(project_id)
+
+
+@router.post("/{project_id}/index", status_code=status.HTTP_202_ACCEPTED)
+async def start_indexing(project_id: int, service: IndexingServiceDep) -> ProjectIndexStatus:
+    """Start a background indexing job for this project."""
+    return await service.start(project_id)
+
+
+@router.get("/{project_id}/index/status")
+async def get_index_status(project_id: int, service: IndexingServiceDep) -> ProjectIndexStatus:
+    """Return indexing state and live MCP progress."""
+    return await service.get_status(project_id)
