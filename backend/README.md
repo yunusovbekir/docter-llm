@@ -27,6 +27,19 @@ curl http://127.0.0.1:8000/api/health
 
 Interactive API docs are available at http://127.0.0.1:8000/docs.
 
+Endpoints are grouped under `health`, `settings`, `projects`, `sessions`, and
+`changes` OpenAPI tags. Regenerate the frontend contract after API changes:
+
+```bash
+uv run python -m backend.scripts.export_openapi
+uv run python -m backend.scripts.export_openapi --check
+```
+
+The exporter creates `frontend/src/api/openapi.json` (including its parent
+directories). `--output <path>` selects a different destination; `--check` exits
+with status 1 for a missing or stale file without modifying it. Exporting does
+not start the application lifespan, create its data directories, or launch MCP.
+
 ## Configuration
 
 Settings are read from environment variables with the `DOCTER_` prefix (see `config.py`).
@@ -78,7 +91,7 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ### Lifespan
 
-At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), a `SessionService` (`sessions`), a `GitService` (`git`), and a `ReviewService` (`review`) on `app.state`. It resets stale session run flags to `idle`. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
+At startup the app creates the data directories, configures logging, creates the async engine, runs `create_all`, and stores `engine`, `sessionmaker`, an `MCPManager` (`mcp`), an `IndexingService` (`indexing`), a `SessionService` (`sessions`), a `GitService` (`git`), and a `ReviewService` (`review`) on `app.state`. Before accepting requests, it resets stale session `run_status=running` flags to `idle` and project `index_status=running` flags to `failed`. Other statuses, history, branch names, and the last successful indexing timestamps are preserved; recovery is idempotent. At shutdown it cancels and awaits chat and indexing jobs, stops the MCP server, if running, and disposes of the engine.
 
 ### Database sessions
 
@@ -104,6 +117,18 @@ Every error response has the same JSON shape:
 - **Domain errors:** subclass `DocterError` and set `status_code` and `code`.
 - **HTTP and validation errors:** mapped to the same shape. Validation errors use the `validation_error` code.
 - **Unhandled exceptions:** logged with a traceback. The client receives a 500 response with `internal_error` and no internal details.
+
+Error codes are stable lower-case identifiers; clients should branch on `code`,
+not the human-readable `message`. OpenAPI uses the shared `ErrorResponse` schema
+for common error statuses, including validation failures rather than FastAPI's
+default `detail` envelope.
+
+Every HTTP response, including errors, CORS preflights, and SSE streams, has an
+`X-Request-ID` header. A supplied ID is echoed if it contains 1-128 ASCII letters,
+digits, `.`, `_`, or `-`; missing or invalid IDs are replaced with a generated UUID4
+hex string. Handlers can read `request.state.request_id`; unhandled-error logs
+include it. CORS exposes the response header to the frontend. Request IDs do not
+alter the error JSON or the SSE run/event IDs.
 
 ### Frontend serving
 
@@ -196,6 +221,8 @@ Progress, messages, and errors are in memory and reset on application restart; p
 status and the last successful `indexed_at` are persisted. A failed re-index preserves
 the previous successful timestamp. Completed or failed jobs can be started again.
 Graceful shutdown cancels active jobs and marks them failed before closing the database.
+Startup marks any indexing jobs left `running` by an interrupted process as `failed`;
+these can be retried through the normal indexing endpoint.
 The registry is process-local: run a single backend worker.
 
 ## Sessions and chat

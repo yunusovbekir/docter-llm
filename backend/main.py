@@ -15,12 +15,13 @@ from backend.api import sessions as sessions_api
 from backend.api import settings as settings_api
 from backend.config import Settings, get_settings
 from backend.db import create_all, create_engine, create_sessionmaker
-from backend.errors import register_exception_handlers
+from backend.errors import ErrorResponse, register_exception_handlers
 from backend.git.service import GitService
 from backend.llm import LLMGateway
 from backend.llm.sampling import SamplingHandler
 from backend.logging_config import configure_logging
 from backend.mcp_client import MCPManager
+from backend.middleware import RequestIDMiddleware
 from backend.services.indexing import IndexingService
 from backend.services.review import ReviewService
 from backend.services.secrets import ApiKeyStore
@@ -61,6 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         app.state.mcp = mcp
         indexing = IndexingService(app.state.sessionmaker, mcp)
+        await indexing.recover()
         app.state.indexing = indexing
         sessions = SessionService(sessionmaker, mcp)
         await sessions.recover()
@@ -76,7 +78,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await engine.dispose()
             logger.info("Docter stopped")
 
-    app = FastAPI(title="Docter", version=__version__, lifespan=lifespan)
+    app = FastAPI(
+        title="Docter",
+        version=__version__,
+        lifespan=lifespan,
+        openapi_tags=[
+            {"name": "health", "description": "Backend availability and version."},
+            {"name": "settings", "description": "LLM configuration and connection testing."},
+            {"name": "projects", "description": "Local repositories and indexing jobs."},
+            {
+                "name": "sessions",
+                "description": "Conversations, streamed agent runs, and proposals.",
+            },
+            {"name": "changes", "description": "Human review and approval of proposed patches."},
+        ],
+        responses={
+            status: {"model": ErrorResponse} for status in (400, 404, 409, 422, 500, 502, 503, 504)
+        },
+    )
     app.state.settings = resolved
 
     app.add_middleware(
@@ -85,7 +104,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Request-ID"],
     )
+    app.add_middleware(RequestIDMiddleware)
     register_exception_handlers(app)
     app.include_router(health.router)
     app.include_router(settings_api.router)
