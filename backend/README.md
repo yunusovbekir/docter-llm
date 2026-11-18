@@ -73,6 +73,7 @@ These paths are derived from `data_dir`. They are created at startup.
 | `services/`         | Business logic (`settings.py`, `projects.py`) and the keyring-backed `ApiKeyStore` (`secrets.py`) |
 | `git/`              | GitPython helpers (`repository.py`: read-only working-tree inspection)         |
 | `mcp_client/`       | `MCPManager` (`manager.py`): runs the Docter MCP server over stdio and calls its tools |
+| `llm/`             | LiteLLM gateway, typed completion events, MCP tool conversion, and sampling callback |
 
 ### Lifespan
 
@@ -205,7 +206,7 @@ The registry is process-local: run a single backend worker.
 - **`call_tool(name, args, timeout, progress_callback=None)`:** returns a `ToolResult` with `text`, `structured`, and `is_error`. A tool that runs but fails returns `is_error: true` instead of raising. `progress_callback(progress, total, message)` receives the server's progress notifications.
 - **`restart()`:** stops the server and starts a new one.
 - **Crash recovery:** if the connection is lost, the failing call raises `MCPError`, and the next call starts a new server.
-- **Sampling:** the constructor accepts an optional `sampling_callback` for `sampling/createMessage` requests from the server.
+- **Sampling:** the constructor accepts an optional `sampling_callback` for `sampling/createMessage` requests from the server. The application supplies `llm/sampling.py::SamplingHandler`, which reloads saved settings and the provider's keyring key for each request.
 
 Failures are raised as domain errors:
 
@@ -213,6 +214,33 @@ Failures are raised as domain errors:
 |------------------------------------------------------|--------|---------------|
 | The server failed to start, the connection was lost, or a request failed | 502 | `mcp_error` |
 | The server did not start, or a tool did not finish, within the timeout | 504 | `mcp_timeout` |
+
+## LLM gateway
+
+`SettingsService.gateway()` builds an `LLMGateway` from the saved `AppSettings`
+(or defaults) and the provider's keyring key. Direct callers can also construct
+`LLMGateway(settings, api_key)`. A gateway snapshots its configuration.
+
+- `stream_chat(messages, tools=())` uses `litellm.acompletion(stream=True)` and yields
+  `TextDelta(text)`, complete `ToolCallRequest(id, name, arguments)` events, `Usage`,
+  then `Done`. Tool fragments are accumulated by index, and arguments must decode
+  to JSON objects. Usage-only trailing chunks are consumed before completion.
+- `complete(messages)` returns `Completion(text, model, stop_reason, usage)`.
+  Optional `max_tokens`, `temperature`, and `stop` parameters support MCP sampling.
+- Token counts and estimated `cost_usd` are `None` when unavailable, with a warning;
+  an unknown model price is never reported as a free completion.
+- Rate limits and timeouts get two retries, after 1 and 2 seconds. LiteLLM's internal
+  retries are disabled. A stream is not retried once text has been emitted, avoiding
+  duplicated output. Failed or truncated streams never emit `Done`.
+- Provider failures raise `LLMError` (`502`, `llm_error`) without exposing provider
+  error messages that could contain credentials.
+
+Sampling supports text messages, the system prompt, token limit, temperature, and
+stop sequences. It returns an MCP assistant message with the actual response model
+and normalized stop reason. Non-text content and sampling tools are explicitly
+rejected with protocol errors. Server model preferences do not override the user's
+configured provider/model, and `includeContext` does not add repository or other
+server context.
 
 ## Development
 

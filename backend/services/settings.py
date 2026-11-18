@@ -7,6 +7,7 @@ import time
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from backend.config import Settings
+from backend.llm import LLMGateway
 from backend.models.settings import (
     AppSettings,
     ConnectionTestResult,
@@ -28,6 +29,11 @@ class SettingsService:
     async def get(self) -> SettingsRead:
         """Return the current settings (defaults if never saved)."""
         return await self._to_read(await self._load())
+
+    async def gateway(self) -> LLMGateway:
+        """Build a gateway from the saved settings and the provider's keyring key."""
+        row = await self._load()
+        return LLMGateway(row, await self._keys.get(row.provider))
 
     async def update(self, data: SettingsUpdate) -> SettingsRead:
         """Apply the fields set in ``data`` and store or delete the API key."""

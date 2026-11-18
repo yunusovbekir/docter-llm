@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     MAX_ERROR_LENGTH: ClassVar[int] = 500
     DEFAULT_STARTUP_TIMEOUT_S: ClassVar[float] = 30.0
     DEFAULT_REQUEST_TIMEOUT_S: ClassVar[float] = 60.0
+    LLM_RETRIES: ClassVar[int] = 2
+    LLM_RETRY_BACKOFF_S: ClassVar[float] = 1.0
     INDEX_TIMEOUT_S: ClassVar[float] = 3600.0
     SHUTDOWN_TIMEOUT_S: ClassVar[float] = 10.0
     CONNECTION_LOST_ERRORS: ClassVar[tuple[type[Exception], ...]] = (
