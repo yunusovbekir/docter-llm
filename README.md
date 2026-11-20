@@ -63,12 +63,17 @@ repository root:
 ```bash
 cd frontend
 pnpm install --frozen-lockfile
+pnpm gen:api
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build   # writes frontend/dist
 pnpm dev     # http://localhost:5173
 ```
+
+`pnpm gen:api` regenerates `frontend/src/api/schema.d.ts` from
+`http://127.0.0.1:8000/openapi.json`, or from the checked-in
+`frontend/src/api/openapi.json` when the endpoint is unavailable.
 
 Run `uv run docter` from the repository root in another terminal for API requests;
 Vite forwards `/api` to `http://127.0.0.1:8000`. Run `pnpm preview` from `frontend/`
