@@ -125,6 +125,34 @@ async def test_info_and_contract_schemas(repo: Path) -> None:
         assert info.capabilities.execution_enabled is True
 
 
+async def test_standalone_prompts(repo: Path) -> None:
+    async with connected(repo) as session:
+        prompts = {prompt.name: prompt for prompt in (await session.list_prompts()).prompts}
+        assert set(prompts) == {"add_docs", "fix_docs", "find_missing_docs", "translate_docs"}
+        cases = {
+            "add_docs": ({"scope": "src/"}, ("find_doc_gaps", "propose_patch", "src/")),
+            "fix_docs": ({}, ("index_repo", "check_doc_drift", "propose_patch")),
+            "find_missing_docs": ({}, ("find_doc_gaps", "Do not call propose_patch")),
+            "translate_docs": (
+                {"file_path": "README.md", "target_language": "pt-BR"},
+                ("translate_file", "README.md", "pt-BR"),
+            ),
+        }
+        for name, (arguments, expected) in cases.items():
+            required = {
+                argument.name for argument in prompts[name].arguments or [] if argument.required
+            }
+            assert required == (
+                {"file_path", "target_language"} if name == "translate_docs" else set()
+            )
+            result = await session.get_prompt(name, arguments)
+            (message,) = result.messages
+            assert message.role == "user"
+            assert isinstance(message.content, TextContent)
+            for text in (str(repo), *expected):
+                assert text in message.content.text
+
+
 async def test_read_file_and_ranges(repo: Path) -> None:
     (repo / "lines.txt").write_bytes(b"first\r\nsecond\r\nthird")
     async with connected(repo) as session:

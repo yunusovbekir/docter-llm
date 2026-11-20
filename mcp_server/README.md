@@ -1,26 +1,61 @@
 # Docter MCP server
 
-The server exposes `get_server_info`, `index_repo`, `search_code`, `get_symbol`,
-`read_file`, `list_doc_files`, `find_doc_gaps`, `check_doc_drift`, `run_doc_examples`,
-`propose_patch`, and `translate_file` over stdio.
-It uses the official MCP 2 SDK's `MCPServer` (the renamed FastMCP API). All tool input
+The server runs over stdio using the official MCP 2 SDK's `MCPServer`
+(the renamed FastMCP API). All tool input
 and output schemas are the shared `docter_contract` models, including flat tool arguments.
 The server never writes to the target repository itself. Repository code is executed
 only by explicitly enabled documentation example checks; see the execution warning below.
 
-From the workspace root:
+## Install
+
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then run
+from the workspace root. The server requires Python 3.12 or newer.
 
 ```sh
-uv sync
-uv run docter-mcp --repo /absolute/path/to/repo
-# Equivalent:
-uv run python -m docter_mcp --repo /absolute/path/to/repo
+uv sync --locked --package docter-mcp --no-default-groups
+uv run --no-sync docter-mcp --repo /absolute/path/to/repo
 ```
 
+Neither command needs the Docter backend to be running.
+
 Only MCP messages are written to stdout; logging goes to stderr. `--repo` binds resource
-reads to that repository for the lifetime of the server; it defaults to the startup working
-directory. Tool calls specify their own absolute `repo` and do not change resource binding.
+reads and standalone prompts to that repository for the lifetime of the server; it defaults
+to the startup working directory. Tool calls specify their own absolute `repo` and do not
+change that binding.
 Repositories must be Git working-tree roots, not arbitrary subdirectories.
+
+## Claude Desktop and Cursor
+
+In Claude Desktop, open **Settings > Developer > Edit Config** and add the entry below to
+`claude_desktop_config.json`, then restart the app. In Cursor, use the same `mcpServers`
+entry in `.cursor/mcp.json`. Use absolute paths to the installed `uv` executable, the
+Docter workspace, and your target Git repository. On Windows, escape backslashes in JSON.
+
+```json
+{
+  "mcpServers": {
+    "docter": {
+      "command": "/absolute/path/to/uv",
+      "args": [
+        "--directory", "/absolute/path/to/docter-llm",
+        "run", "--no-sync",
+        "docter-mcp", "--repo", "/absolute/path/to/target-repo"
+      ],
+      "env": {
+        "DOCTER_ALLOWED_ROOTS": "/absolute/path/to/target-repo",
+        "DOCSMITH_ALLOW_EXEC": "false"
+      }
+    }
+  }
+}
+```
+
+In clients that surface MCP prompts, choose `add_docs` for additions, `fix_docs` for
+corrections, or `find_missing_docs` for a gaps report without patches. These accept an
+optional `scope`. `translate_docs` requires a repository-relative Markdown `file_path` and
+BCP 47 `target_language` (for example `fr` or `pt-BR`). If the client does not surface
+prompts, ask it to use the tools directly. The `translate_file` tool specifically requires
+client sampling support; see [Translation](#translation).
 
 ## Configuration
 
@@ -38,11 +73,49 @@ The shared contract's immutable protocol definitions remain unchanged.
 | `DOCSMITH_ALLOW_EXEC` | `false` | Opt into executing trusted repository examples (`true`/`false` or `1`/`0`). |
 | `DOCTER_ALLOW_EXEC` | unset | Compatibility execution setting; `DOCSMITH_ALLOW_EXEC` takes precedence. |
 
+## Security notes
+
+Set `DOCTER_ALLOWED_ROOTS` to the smallest set of repositories the client should access.
+`--repo` alone does not restrict tool calls, and an unset allowlist permits any accessible
+Git working tree. Path restrictions are not an OS-level sandbox. Run the server with only
+the filesystem access and credentials it needs, and review patches before applying them.
+
+Keep `DOCSMITH_ALLOW_EXEC` off for untrusted repositories. Enabling it lets examples and
+imported modules execute arbitrary repository code with the server's permissions, including
+filesystem and network access. The subprocess and timeout do not provide a security sandbox.
+Once enabled, `check_doc_drift` also runs examples. See
+[Documentation drift and examples](#documentation-drift-and-examples) for details.
+
 File arguments use repository-relative `/` paths. Absolute paths, `..`, `.git` components,
 and symlinks resolving outside the repo or into Git metadata are rejected. Directory
 symlinks are not followed during documentation discovery. Missing files and rejected
 paths produce contract-coded tool errors; unreadable or non-UTF-8 files produce explicit
 read errors.
+
+## Tool reference
+
+The shared contract defines argument and result types in [`contract/schema.json`](../contract/schema.json).
+Regenerate this table with `uv run python mcp_server/scripts/export_tool_reference.py`.
+
+<!-- BEGIN GENERATED TOOL REFERENCE -->
+
+| Tool | Required arguments | Optional arguments | Structured result |
+|---|---|---|---|
+| `get_server_info` | - | - | [`GetServerInfoOutput`](../contract/schema.json) |
+| `index_repo` | `repo` | `force` | [`IndexRepoOutput`](../contract/schema.json) |
+| `search_code` | `repo`, `query` | `k`, `kind` | [`SearchCodeOutput`](../contract/schema.json) |
+| `get_symbol` | `repo`, `qualname` | - | [`GetSymbolOutput`](../contract/schema.json) |
+| `read_file` | `repo`, `file_path` | `start_line`, `end_line` | [`ReadFileOutput`](../contract/schema.json) |
+| `list_doc_files` | `repo` | - | [`ListDocFilesOutput`](../contract/schema.json) |
+| `find_doc_gaps` | `repo` | `include_private`, `path_prefix` | [`FindDocGapsOutput`](../contract/schema.json) |
+| `check_doc_drift` | `repo` | `path_prefix` | [`CheckDocDriftOutput`](../contract/schema.json) |
+| `run_doc_examples` | `repo` | `file_path` | [`RunDocExamplesOutput`](../contract/schema.json) |
+| `propose_patch` | `repo`, `file_path`, `rationale` | `edits`, `new_content` | [`ProposePatchOutput`](../contract/schema.json) |
+| `translate_file` | `repo`, `file_path`, `target_language` | - | [`TranslateFileOutput`](../contract/schema.json) |
+
+<!-- END GENERATED TOOL REFERENCE -->
+
+## Reading files
 
 `read_file` accepts optional inclusive, 1-based `start_line` and `end_line`, preserves
 line endings, and returns the total file line count. Ranges beyond EOF are truncated;
@@ -259,7 +332,9 @@ uv run mypy
 ```
 
 Integration tests use the MCP SDK's in-memory client session; a separate stdio test checks
-the installed console script. Tests copy `tests/fixtures/sample_repo` to a temporary directory
+the installed console script. The backend also tests indexing, gap detection, and patch
+validation against the real server over stdio with a deterministic embedding substitute.
+Tests copy `tests/fixtures/sample_repo` to a temporary directory
 and run `git init` there, leaving the shared fixture and target repositories unchanged.
 Index tests use real SQLite and LanceDB with deterministic local embedding substitutes,
 including relevance checks, full/incremental/forced indexing, failed-refresh recovery,
