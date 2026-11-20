@@ -74,6 +74,10 @@ Run `uv run docter` from the repository root in another terminal for API request
 Vite forwards `/api` to `http://127.0.0.1:8000`. Run `pnpm preview` from `frontend/`
 to serve the production build locally.
 
+The Docter app opens on Projects and provides sidebar links to History and
+Settings. If you serve `frontend/dist` outside Vite, configure your server to
+serve `index.html` for client-side routes, without rewriting `/api` requests.
+
 ## Documentation
 
 - [Backend](backend/README.md): configuration, API reference, and development guide.
