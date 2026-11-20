@@ -55,6 +55,25 @@ or database. The offline approval-flow test is
 chats with a fake LLM, approves its proposed patch, and checks the real commit on
 the session's `docsmith/` branch.
 
+## Frontend development
+
+Use Node.js 20.19+ (20.x), 22.13+ (22.x), or 24+, and pnpm 10. Run from the
+repository root:
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build   # writes frontend/dist
+pnpm dev     # http://localhost:5173
+```
+
+Run `uv run docter` from the repository root in another terminal for API requests;
+Vite forwards `/api` to `http://127.0.0.1:8000`. Run `pnpm preview` from `frontend/`
+to serve the production build locally.
+
 ## Documentation
 
 - [Backend](backend/README.md): configuration, API reference, and development guide.
