@@ -18,13 +18,20 @@ Docter works with OpenAI, Anthropic, Ollama, and any other provider supported by
 
 ## Quick start
 
+On Linux or WSL, install Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js
+20.19+ (20.x), 22.13+ (22.x), or 24+, and pnpm 10. From the repository root, run:
+
 ```bash
-git clone <repo-url> && cd docter
-uv sync
-uv run docter   # http://127.0.0.1:8000
+bash scripts/dev.sh
 ```
 
-Open the app, set your LLM provider and API key under **Settings**, and add a project.
+Open [http://localhost:5173](http://localhost:5173). The launcher installs frontend
+dependencies and starts the Vite frontend and FastAPI backend. The backend
+starts MCP on demand and initializes its local SQLite database. Press Ctrl+C to
+stop both services. If your configured LLM provider is a separate local service
+such as Ollama, it still needs to be running.
+
+Set your LLM provider and API key under **Settings**, and add a project.
 
 ## Backend development
 
@@ -75,9 +82,10 @@ pnpm dev     # http://localhost:5173
 `http://127.0.0.1:8000/openapi.json`, or from the checked-in
 `frontend/src/api/openapi.json` when the endpoint is unavailable.
 
-Run `uv run docter` from the repository root in another terminal for API requests;
-Vite forwards `/api` to `http://127.0.0.1:8000`. Run `pnpm preview` from `frontend/`
-to serve the production build locally.
+To run the services separately, start `uv run docter` from the repository root.
+Vite forwards `/api` to `http://127.0.0.1:8000` by default, or to the port set by
+`DOCTER_PORT`. Run `pnpm preview` from `frontend/` to serve the production build
+locally.
 
 The Docter app opens on Projects and provides sidebar links to History and
 Settings. If you serve `frontend/dist` outside Vite, configure your server to
