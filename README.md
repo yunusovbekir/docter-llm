@@ -82,6 +82,11 @@ pnpm dev     # http://localhost:5173
 `http://127.0.0.1:8000/openapi.json`, or from the checked-in
 `frontend/src/api/openapi.json` when the endpoint is unavailable.
 
+Shared UI primitives live in `frontend/src/components/common/`. Bind `AppInput`
+and `AppSelect` with `v-model` and provide a visible `label`. Control `AppModal`
+with `:open` and set it to `false` in the `@close` handler. Set the Tailwind
+`dark` class on `<html>` so it also applies to the dialog teleported to `<body>`.
+
 To run the services separately, start `uv run docter` from the repository root.
 Vite forwards `/api` to `http://127.0.0.1:8000` by default, or to the port set by
 `DOCTER_PORT`. Run `pnpm preview` from `frontend/` to serve the production build
