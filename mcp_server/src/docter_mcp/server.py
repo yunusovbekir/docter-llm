@@ -45,6 +45,7 @@ from docter_mcp import patching, resources, tools, translation
 from docter_mcp.analysis import drift, examples, gaps
 from docter_mcp.config import Config
 from docter_mcp.indexing import service as indexing
+from docter_mcp.prompts import register_prompts
 from docter_mcp.sandbox import Sandbox
 
 
@@ -231,6 +232,7 @@ def create_server(
         except ToolError as exc:
             raise ResourceError(str(exc)) from exc
 
+    register_prompts(server, repo)
     return server
 
 

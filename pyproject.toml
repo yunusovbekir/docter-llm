@@ -34,6 +34,7 @@ files = [
     "contract/scripts",
     "contract/tests",
     "mcp_server/src",
+    "mcp_server/scripts",
     "mcp_server/tests",
 ]
 
