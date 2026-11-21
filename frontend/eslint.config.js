@@ -4,7 +4,7 @@ import vue from 'eslint-plugin-vue'
 import tseslint from 'typescript-eslint'
 
 export default [
-  { ignores: ['dist/**'] },
+  { ignores: ['dist/**', 'playwright-report/**', 'test-results/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...vue.configs['flat/recommended'],
