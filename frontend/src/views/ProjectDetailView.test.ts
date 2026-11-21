@@ -178,6 +178,8 @@ it('stops polling when switching projects or leaving the detail view', async () 
   const read = mockStatus(running)
   const readOther = vi.fn()
   server.use(
+    http.get('/api/projects', () => HttpResponse.json([])),
+    http.get('/api/sessions', () => HttpResponse.json([])),
     http.get('/api/projects/9', () => HttpResponse.json({ ...project, id: 9, name: 'Other' })),
     http.get('/api/projects/9/index/status', () => {
       readOther()

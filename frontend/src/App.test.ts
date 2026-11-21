@@ -11,7 +11,10 @@ import { server } from './test/msw'
 
 enableAutoUnmount(afterEach)
 beforeEach(() => {
-  server.use(http.get('/api/projects', () => HttpResponse.json([])))
+  server.use(
+    http.get('/api/projects', () => HttpResponse.json([])),
+    http.get('/api/sessions', () => HttpResponse.json([])),
+  )
 })
 
 async function renderAt(path: string) {

@@ -33,9 +33,9 @@ async def get_session(session_id: int, service: SessionServiceDep) -> SessionDet
 
 @router.get("")
 async def list_sessions(
-    project_id: Annotated[int, Query(gt=0)], service: SessionServiceDep
+    service: SessionServiceDep, project_id: Annotated[int | None, Query(gt=0)] = None
 ) -> list[SessionSummary]:
-    """List project sessions with pending, applied, and denied proposal counts."""
+    """List sessions with proposal counts, optionally filtered by project."""
     return await service.list_all(project_id)
 
 

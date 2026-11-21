@@ -162,7 +162,7 @@ export interface paths {
         };
         /**
          * List Sessions
-         * @description List project sessions with pending, applied, and denied proposal counts.
+         * @description List sessions with proposal counts, optionally filtered by project.
          */
         get: operations["list_sessions_api_sessions_get"];
         put?: never;
@@ -1729,8 +1729,8 @@ export interface operations {
     };
     list_sessions_api_sessions_get: {
         parameters: {
-            query: {
-                project_id: number;
+            query?: {
+                project_id?: number | null;
             };
             header?: never;
             path?: never;

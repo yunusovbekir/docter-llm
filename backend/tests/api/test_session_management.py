@@ -78,8 +78,17 @@ async def test_list_sessions_with_counts_across_runs(app: FastAPI, client: Async
         "change_counts": {"pending": 2, "applied": 2, "denied": 1}
     }
 
+    response = await client.get("/api/sessions")
+    assert response.status_code == 200, response.text
+    by_id = {row["id"]: row for row in response.json()}
+    assert set(by_id) == {first, second, other}
+    assert by_id[first] == body[0]
+    assert by_id[second] == body[1]
+    assert by_id[other]["change_counts"] == {"pending": 0, "applied": 0, "denied": 1}
+
 
 async def test_empty_and_unknown_project_lists(app: FastAPI, client: AsyncClient) -> None:
+    assert (await client.get("/api/sessions")).json() == []
     response = await client.get("/api/sessions", params={"project_id": await _project(app)})
     assert response.status_code == 200
     assert response.json() == []
@@ -88,8 +97,8 @@ async def test_empty_and_unknown_project_lists(app: FastAPI, client: AsyncClient
     assert response.json()["error"]["code"] == "project_not_found"
 
 
-@pytest.mark.parametrize("query", ["", "?project_id=0", "?project_id=-1", "?project_id=text"])
-async def test_list_requires_positive_project_id(client: AsyncClient, query: str) -> None:
+@pytest.mark.parametrize("query", ["?project_id=0", "?project_id=-1", "?project_id=text"])
+async def test_list_validates_project_id_when_provided(client: AsyncClient, query: str) -> None:
     response = await client.get(f"/api/sessions{query}")
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"

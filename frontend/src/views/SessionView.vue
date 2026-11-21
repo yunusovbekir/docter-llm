@@ -14,6 +14,7 @@ import ReviewBar from '../components/review/ReviewBar.vue'
 import { canComment, canReview, useReviewActions } from '../composables/useReviewActions'
 import { useChanges } from '../stores/changes'
 import { useSession } from '../stores/session'
+import { modeLabels } from '../types/sessionModes'
 
 const DiffViewer = defineAsyncComponent({
   loader: () => import('../components/diff/DiffViewer.vue'),
@@ -49,13 +50,6 @@ const id = computed(() => {
   return /^\d+$/.test(props.id) && Number.isSafeInteger(value) && value > 0 ? value : undefined
 })
 const { pending, review } = useReviewActions(id)
-const modeLabels = {
-  add: 'Add',
-  fix: 'Fix',
-  find_missing: 'Find Missing',
-  translate: 'Translate',
-} satisfies Record<components['schemas']['Mode'], string>
-
 function load() {
   if (id.value === undefined) store.clear()
   else void store.load(id.value)

@@ -134,9 +134,12 @@ Find Missing results show documentation coverage and a list of gaps you can filt
 by missing type or sort by file. Select symbols and choose **Send to Add mode** to
 open an Add session for the same project with an editable draft. Nothing is sent
 until you submit the draft.
-The sidebar links to History and Settings. If you serve `frontend/dist` outside
-Vite, configure your server to serve `index.html` for client-side routes, without
-rewriting `/api` requests.
+In **History**, filter sessions by project, check how many proposals are pending,
+applied, or denied, copy a session's branch name, or resume the session. Deleting
+a session removes its history and worktree but keeps its Git branch, if one exists.
+
+If you serve `frontend/dist` outside Vite, configure your server to serve `index.html`
+for client-side routes, without rewriting `/api` requests.
 
 ## Documentation
 

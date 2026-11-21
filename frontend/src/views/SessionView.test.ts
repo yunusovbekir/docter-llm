@@ -422,6 +422,10 @@ it('groups files newest first and shows each status and hunk count', async () =>
   expect(changes.selectedChangeId).toBe(10)
   expect(rows[1]!.attributes('aria-pressed')).toBe('false')
 
+  server.use(
+    http.get('/api/projects', () => HttpResponse.json([])),
+    http.get('/api/sessions', () => HttpResponse.json([])),
+  )
   await router.push('/history')
   expect(changes.selectedChangeId).toBeNull()
 })
