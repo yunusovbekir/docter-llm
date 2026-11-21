@@ -122,6 +122,9 @@ appear inline in the conversation.
 The Changes panel lists proposed files by change set, newest first, and refreshes
 as new proposals arrive. Select a file to open its read-only diff. Switch between
 side-by-side and inline layouts; the browser remembers your preference.
+Approve or deny the selected change above its diff, or use **Approve all pending**
+to review remaining changes in bulk after confirming. Conflicts are flagged when
+a patch could not be applied.
 The sidebar links to History and Settings. If you serve `frontend/dist` outside
 Vite, configure your server to serve `index.html` for client-side routes, without
 rewriting `/api` requests.
