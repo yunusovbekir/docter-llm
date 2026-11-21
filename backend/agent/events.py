@@ -43,6 +43,7 @@ class ChangeProposed(_Event):
 
     type: Literal["change_proposed"] = "change_proposed"
     change: ProposePatchOutput
+    change_id: int | None = None
 
 
 class Warning(_Event):

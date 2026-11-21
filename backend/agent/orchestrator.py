@@ -154,7 +154,7 @@ class Orchestrator:
                     for warning in warnings:
                         yield warning
                     if change is not None:
-                        yield events.ChangeProposed(change=change)
+                        yield change
 
             yield events.Warning(
                 code="max_agent_steps",
@@ -167,7 +167,7 @@ class Orchestrator:
 
     async def _execute(
         self, call: ToolCallRequest, allowed: set[str]
-    ) -> tuple[ToolResult, ProposePatchOutput | None, list[events.Warning]]:
+    ) -> tuple[ToolResult, events.ChangeProposed | None, list[events.Warning]]:
         if call.name not in allowed:
             return (
                 ToolResult(
@@ -218,4 +218,4 @@ class Orchestrator:
         accepted = await self._change_sink.add(change)
         if isinstance(accepted, SinkError):
             return ToolResult(text=accepted.message, is_error=True), None, warnings
-        return result, change, warnings
+        return result, events.ChangeProposed(change=change, change_id=accepted.change_id), warnings

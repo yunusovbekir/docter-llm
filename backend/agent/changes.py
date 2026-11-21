@@ -10,6 +10,8 @@ from docter_contract import ProposePatchOutput
 class Ok:
     """The proposal was accepted for review, not applied to the repository."""
 
+    change_id: int | None = None
+
 
 @dataclass(frozen=True)
 class Error:

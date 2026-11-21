@@ -486,6 +486,7 @@ async def test_saved_step_limit_and_proposal_events(
     assert sets[0]["run_id"] == streamed[0]["id"].rsplit(":", 1)[0]
     assert sets[0]["session_id"] == session_id
     change = sets[0]["changes"][0]
+    assert streamed[2]["data"]["change_id"] == change["id"]
     assert change["change_set_id"] == sets[0]["id"]
     assert change["patch"] == patch["patch"]
     assert change["original_content"] == "# Demo\n"
