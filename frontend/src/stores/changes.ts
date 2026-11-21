@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { onScopeDispose, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { api, ApiError, unwrap } from '../api/client'
 import type { components } from '../api/schema'
 import { useToast } from './toast'
@@ -10,6 +10,14 @@ type ChangeId = components['schemas']['ChangeRead']['id']
 export const useChanges = defineStore('changes', () => {
   const changeSets = ref<ChangeSet[]>([])
   const selectedChangeId = ref<ChangeId | null>(null)
+  const selectedChange = computed(() => {
+    if (selectedChangeId.value === null) return undefined
+    for (const { changes } of changeSets.value) {
+      const match = changes.find(({ id }) => id === selectedChangeId.value)
+      if (match) return match
+    }
+    return undefined
+  })
   const loading = ref(false)
   const error = ref('')
   const toast = useToast()
@@ -48,11 +56,7 @@ export const useChanges = defineStore('changes', () => {
       changeSets.value = result
         .filter((set) => set.changes.length)
         .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)
-      if (
-        !changeSets.value.some((set) => set.changes.some(({ id }) => id === selectedChangeId.value))
-      ) {
-        selectedChangeId.value = null
-      }
+      if (!selectedChange.value) selectedChangeId.value = null
     } catch (cause) {
       if (request.signal.aborted) return
       error.value = cause instanceof ApiError ? cause.message : 'Could not load the changes.'
@@ -65,5 +69,5 @@ export const useChanges = defineStore('changes', () => {
     }
   }
 
-  return { changeSets, selectedChangeId, loading, error, load, clear }
+  return { changeSets, selectedChangeId, selectedChange, loading, error, load, clear }
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose, watch } from 'vue'
+import { computed, defineAsyncComponent, h, onScopeDispose, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { components } from '../api/schema'
 import ChatPanel from '../components/chat/ChatPanel.vue'
@@ -10,6 +10,12 @@ import AppSpinner from '../components/common/AppSpinner.vue'
 import ChangeList from '../components/review/ChangeList.vue'
 import { useChanges } from '../stores/changes'
 import { useSession } from '../stores/session'
+
+const DiffViewer = defineAsyncComponent({
+  loader: () => import('../components/diff/DiffViewer.vue'),
+  loadingComponent: () => h(AppSpinner, { label: 'Loading diff viewer' }),
+  errorComponent: () => h(AppEmptyState, { title: 'Could not load the diff viewer' }),
+})
 
 const props = defineProps<{ id: string }>()
 const store = useSession()
@@ -80,7 +86,7 @@ onScopeDispose(changes.clear)
     </AppEmptyState>
     <div
       v-else-if="store.session"
-      class="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+      class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
     >
       <ChatPanel
         :key="store.session.id"
@@ -88,7 +94,19 @@ onScopeDispose(changes.clear)
         class="min-w-0"
         @change-proposed="reloadChanges"
       />
-      <ChangeList @retry="reloadChanges()" />
+      <div class="min-w-0 space-y-4">
+        <ChangeList @retry="reloadChanges()" />
+        <DiffViewer
+          v-if="changes.selectedChange"
+          :key="changes.selectedChange.id"
+          :change="changes.selectedChange"
+        />
+        <AppEmptyState
+          v-else
+          title="No change selected"
+          description="Select a file in Changes to see its diff."
+        />
+      </div>
     </div>
     <AppEmptyState v-else title="Session not found" />
   </section>
