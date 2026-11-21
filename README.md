@@ -127,6 +127,9 @@ to review remaining changes in bulk after confirming. Conflicts are flagged when
 a patch could not be applied.
 For finer review, select pending hunks and approve or deny just those hunks.
 Select a hunk header to jump to it in the diff.
+Leave a review comment on the whole change or a specific hunk to request a
+revision. The run streams into chat, and version links let you compare the new
+proposal with its predecessor.
 The sidebar links to History and Settings. If you serve `frontend/dist` outside
 Vite, configure your server to serve `index.html` for client-side routes, without
 rewriting `/api` requests.

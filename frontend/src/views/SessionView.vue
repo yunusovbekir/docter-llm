@@ -8,9 +8,10 @@ import AppButton from '../components/common/AppButton.vue'
 import AppEmptyState from '../components/common/AppEmptyState.vue'
 import AppSpinner from '../components/common/AppSpinner.vue'
 import ChangeList from '../components/review/ChangeList.vue'
+import CommentBox from '../components/review/CommentBox.vue'
 import HunkList from '../components/review/HunkList.vue'
 import ReviewBar from '../components/review/ReviewBar.vue'
-import { canReview, useReviewActions } from '../composables/useReviewActions'
+import { canComment, canReview, useReviewActions } from '../composables/useReviewActions'
 import { useChanges } from '../stores/changes'
 import { useSession } from '../stores/session'
 
@@ -20,10 +21,29 @@ const DiffViewer = defineAsyncComponent({
   errorComponent: () => h(AppEmptyState, { title: 'Could not load the diff viewer' }),
 })
 const diff = useTemplateRef<InstanceType<typeof DiffViewer>>('diff')
+const chat = useTemplateRef('chat')
 
 const props = defineProps<{ id: string }>()
 const store = useSession()
 const changes = useChanges()
+const versions = computed(() => changes.changeSets.flatMap((set) => set.changes))
+const previous = computed(() =>
+  versions.value.find((change) => change.id === changes.selectedChange?.parent_change_id),
+)
+const revisions = computed(() =>
+  changes.selectedChange
+    ? versions.value.filter((change) => change.parent_change_id === changes.selectedChange?.id)
+    : [],
+)
+async function submitComment(
+  changeId: components['schemas']['ChangeRead']['id'],
+  comment: components['schemas']['CommentCreate'],
+) {
+  const change = changes.selectedChange
+  if (!change || change.id !== changeId || !canComment(change) || pending.value || changes.loading)
+    return false
+  return (await chat.value?.revise(changeId, comment)) ?? false
+}
 const id = computed(() => {
   const value = Number(props.id)
   return /^\d+$/.test(props.id) && Number.isSafeInteger(value) && value > 0 ? value : undefined
@@ -94,6 +114,7 @@ onScopeDispose(changes.clear)
       class="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]"
     >
       <ChatPanel
+        ref="chat"
         :key="store.session.id"
         :session="store.session"
         class="min-w-0"
@@ -107,6 +128,29 @@ onScopeDispose(changes.clear)
           @approve-all="review('approve-all')"
         />
         <template v-if="changes.selectedChange">
+          <nav
+            v-if="previous || revisions.length"
+            aria-label="Revision chain"
+            class="flex flex-wrap gap-3"
+          >
+            <a
+              v-if="previous"
+              :href="`#change-${previous.id}`"
+              class="rounded text-sm text-blue-700 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 dark:text-blue-300 dark:focus-visible:outline-blue-400"
+              @click.prevent="changes.selectedChangeId = previous.id"
+            >
+              View previous version
+            </a>
+            <a
+              v-for="revision in revisions"
+              :key="revision.id"
+              :href="`#change-${revision.id}`"
+              class="rounded text-sm text-blue-700 underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 dark:text-blue-300 dark:focus-visible:outline-blue-400"
+              @click.prevent="changes.selectedChangeId = revision.id"
+            >
+              {{ revisions.length === 1 ? 'View new version' : `View new version #${revision.id}` }}
+            </a>
+          </nav>
           <ReviewBar
             :status="changes.selectedChange.status"
             :disabled="!!pending || changes.loading || !canReview(changes.selectedChange)"
@@ -127,6 +171,18 @@ onScopeDispose(changes.clear)
             ref="diff"
             :key="changes.selectedChange.id"
             :change="changes.selectedChange"
+          />
+          <CommentBox
+            :key="changes.selectedChange.id"
+            :change="changes.selectedChange"
+            :disabled="
+              !chat ||
+              chat.busy ||
+              !!pending ||
+              changes.loading ||
+              !canComment(changes.selectedChange)
+            "
+            :submit-comment="submitComment"
           />
         </template>
         <AppEmptyState

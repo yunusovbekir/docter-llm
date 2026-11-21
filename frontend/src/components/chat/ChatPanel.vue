@@ -9,9 +9,10 @@ const emit = defineEmits<{
   changeProposed: [sessionId: components['schemas']['SessionDetail']['id']]
 }>()
 const session = props.session
-const { entries, waiting, runActive, busy, stopping, send, stop } = useChat(session, () => {
+const { entries, waiting, runActive, busy, stopping, send, revise, stop } = useChat(session, () => {
   emit('changeProposed', session.id)
 })
+defineExpose({ busy, revise })
 </script>
 
 <template>
