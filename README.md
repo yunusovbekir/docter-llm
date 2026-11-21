@@ -87,6 +87,11 @@ and `AppSelect` with `v-model` and provide a visible `label`. Control `AppModal`
 with `:open` and set it to `false` in the `@close` handler. Set the Tailwind
 `dark` class on `<html>` so it also applies to the dialog teleported to `<body>`.
 
+Use `useToast()` for success, error, and info notifications. Up to four toasts
+stack at once; they dismiss after five seconds, or sooner if dismissed manually
+or replaced by a newer toast. Uncaught Vue errors and unhandled promise rejections
+show the API message for an `ApiError` and a generic message otherwise.
+
 To run the services separately, start `uv run docter` from the repository root.
 Vite forwards `/api` to `http://127.0.0.1:8000` by default, or to the port set by
 `DOCTER_PORT`. Run `pnpm preview` from `frontend/` to serve the production build

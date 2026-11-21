@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import ToastHost from './ToastHost.vue'
 
 const links = [
   { label: 'Projects', to: '/projects' },
@@ -35,5 +36,6 @@ const links = [
     <main class="p-4 sm:p-6">
       <slot />
     </main>
+    <ToastHost />
   </div>
 </template>

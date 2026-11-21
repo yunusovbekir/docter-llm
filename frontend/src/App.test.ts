@@ -1,8 +1,11 @@
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
-import { afterEach, expect, it } from 'vitest'
+import { createPinia, disposePinia } from 'pinia'
+import { afterEach, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import App from './App.vue'
 import { createAppRouter } from './router'
+import { useToast } from './stores/toast'
 
 enableAutoUnmount(afterEach)
 
@@ -10,8 +13,9 @@ async function renderAt(path: string) {
   const router = createAppRouter(createMemoryHistory())
   await router.push(path)
   await router.isReady()
-  const wrapper = mount(App, { global: { plugins: [router] } })
-  return { router, wrapper }
+  const pinia = createPinia()
+  const wrapper = mount(App, { global: { plugins: [pinia, router] } })
+  return { pinia, router, wrapper }
 }
 
 it.each([
@@ -65,4 +69,37 @@ it('renders a 404 for an unknown nested path', async () => {
 
   expect(wrapper.get('main h1').text()).toBe('404: Page not found')
   expect(wrapper.find('nav a.bg-blue-100').exists()).toBe(false)
+})
+
+it('stacks and dismisses notifications in the app shell live region', async () => {
+  const { pinia, wrapper } = await renderAt('/projects')
+  const toast = useToast(pinia)
+  const host = wrapper.get('[aria-live="polite"]')
+  vi.useFakeTimers()
+
+  try {
+    expect(host.findAll('li')).toHaveLength(0)
+    toast.success('Project saved.')
+    toast.error('The API is unavailable.')
+    toast.info('Checking for updates.')
+    await nextTick()
+
+    expect(host.findAll('li p').map((item) => item.text())).toEqual([
+      'success: Project saved.',
+      'error: The API is unavailable.',
+      'info: Checking for updates.',
+    ])
+
+    await host
+      .get('button[aria-label="Dismiss notification: The API is unavailable."]')
+      .trigger('click')
+    expect(host.findAll('li')).toHaveLength(2)
+    expect(host.text()).not.toContain('The API is unavailable.')
+    vi.advanceTimersByTime(5_000)
+    await nextTick()
+    expect(host.findAll('li')).toHaveLength(0)
+  } finally {
+    disposePinia(pinia)
+    vi.useRealTimers()
+  }
 })
