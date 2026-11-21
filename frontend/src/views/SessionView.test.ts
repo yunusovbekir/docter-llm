@@ -143,7 +143,7 @@ it('cancels the active run, then aborts the stream and unlocks the composer', as
   await input.setValue('Review the docs')
   await wrapper.get('form').trigger('submit')
   expect(input.attributes('disabled')).toBeDefined()
-  const stop = wrapper.get('button[type="button"]')
+  const stop = wrapper.get('form button[type="button"]')
   expect(stop.text()).toBe('Stop')
   await stop.trigger('click')
   await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
@@ -153,7 +153,7 @@ it('cancels the active run, then aborts the stream and unlocks the composer', as
   confirmCancel()
   await vi.waitFor(() => expect(input.attributes('disabled')).toBeUndefined())
   expect(stream.abort).toHaveBeenCalledTimes(1)
-  expect(wrapper.find('button[type="button"]').exists()).toBe(false)
+  expect(wrapper.find('form button[type="button"]').exists()).toBe(false)
 })
 
 it('blocks sends for a session that is already running on load', async () => {
@@ -244,7 +244,7 @@ it('groups files newest first and shows each status and hunk count', async () =>
     'Change set #1',
     'Change set #2',
   ])
-  const rows = panel.findAll('button')
+  const rows = panel.findAll('button[aria-pressed]')
   expect(rows.map((row) => row.text())).toEqual([
     'docs/partial.mdPartial1 hunk',
     'docs/conflict.mdConflict2 hunks',
@@ -279,8 +279,8 @@ it('shows an empty diff until selection, then passes snapshots and remembers the
   expect(wrapper.text()).toContain('No change selected')
   expect(wrapper.find('[data-monaco]').exists()).toBe(false)
   const panel = wrapper.get('aside')
-  await vi.waitFor(() => expect(panel.findAll('button')).toHaveLength(2))
-  const [first, second] = panel.findAll('button')
+  await vi.waitFor(() => expect(panel.findAll('button[aria-pressed]')).toHaveLength(2))
+  const [first, second] = panel.findAll('button[aria-pressed]')
   await first!.trigger('click')
   await vi.waitFor(() => expect(wrapper.find('[data-monaco]').exists()).toBe(true))
 
@@ -319,7 +319,7 @@ it('reloads on a proposed change without dropping the current selection', async 
   const { wrapper, stream, changes } = await render()
   const panel = wrapper.get('aside')
   await vi.waitFor(() => expect(panel.text()).toContain('docs/pending.md'))
-  await panel.get('button').trigger('click')
+  await panel.get('button[aria-pressed]').trigger('click')
   await wrapper.get('textarea').setValue('Update the docs')
   await wrapper.get('form').trigger('submit')
   sets.push(changeSet(2, '02', 'applied'))
@@ -329,6 +329,108 @@ it('reloads on a proposed change without dropping the current selection', async 
   expect(changes.selectedChangeId).toBe(10)
   expect(panel.get('[aria-pressed="true"]').text()).toContain('docs/pending.md')
   await stream.finish()
+})
+
+function mockReview(action: 'approve' | 'deny' | 'approve-all', status: Change['status']) {
+  const set = changeSet(1, '01', 'pending')
+  const change = set.changes[0]!
+  const readChanges = vi.fn(() => HttpResponse.json([set]))
+  const readSession = vi.fn(() =>
+    HttpResponse.json({
+      ...session,
+      branch_name: change.status === 'pending' ? null : 'docter/review',
+    }),
+  )
+  const post = vi.fn(async ({ request }: { request: Request }) => {
+    expect(await request.text()).toBe('')
+    change.status = status
+    return HttpResponse.json(action === 'approve-all' ? [change] : change)
+  })
+  server.use(
+    http.get('/api/sessions/17/changes', readChanges),
+    http.get('/api/sessions/17', readSession),
+    http.post(
+      action === 'approve-all'
+        ? '/api/sessions/17/changes/approve-all'
+        : `/api/changes/10/${action}`,
+      post,
+    ),
+  )
+  return { readChanges, readSession, post }
+}
+
+it.each([
+  ['approve', 'applied', 'Applied'],
+  ['deny', 'denied', 'Denied'],
+  ['approve', 'conflict', 'Conflict'],
+] as const)(
+  'handles %s with a resulting %s status and reloads both resources',
+  async (action, status, label) => {
+    const { readChanges, readSession, post } = mockReview(action, status)
+    const { wrapper, changes } = await render()
+    const panel = wrapper.get('aside')
+    await vi.waitFor(() => expect(panel.find('button[aria-pressed]').exists()).toBe(true))
+    await panel.get('button[aria-pressed]').trigger('click')
+    await wrapper.get('textarea').setValue('Keep this draft')
+    const bar = wrapper.get('[aria-label="Review selected change"]')
+    const button = bar.findAll('button').find((button) => button.text().toLowerCase() === action)!
+    await button.trigger('click')
+
+    await vi.waitFor(() => {
+      expect(panel.get('button[aria-pressed]').text()).toContain(label)
+      expect(wrapper.get('header').text()).toContain('Branch: docter/review')
+    })
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(readChanges).toHaveBeenCalledTimes(2)
+    expect(readSession).toHaveBeenCalledTimes(2)
+    expect(changes.selectedChangeId).toBe(10)
+    expect(wrapper.get('textarea').element.value).toBe('Keep this draft')
+    if (status === 'conflict') {
+      expect(bar.get('[role="alert"]').text()).toContain('The patch could not be applied')
+    } else {
+      expect(bar.findAll('button').every((button) => button.element.disabled)).toBe(true)
+    }
+  },
+)
+
+it('requires confirmation before approving all pending changes, then reloads both resources', async () => {
+  const { readChanges, readSession, post } = mockReview('approve-all', 'applied')
+  const { wrapper } = await render()
+  const panel = wrapper.get('aside')
+  await vi.waitFor(() => expect(panel.find('button[aria-pressed]').exists()).toBe(true))
+  const dialog = document.querySelector('dialog')!
+  dialog.showModal = () => {
+    dialog.open = true
+  }
+  dialog.close = () => {
+    dialog.open = false
+  }
+  const clickDialog = (label: string) =>
+    [...dialog.querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === label)!
+      .click()
+
+  const approveAll = panel
+    .findAll('button')
+    .find((button) => button.text() === 'Approve all pending')!
+  await approveAll.trigger('click')
+  expect(dialog.open).toBe(true)
+  expect(post).not.toHaveBeenCalled()
+  clickDialog('Cancel')
+  await nextTick()
+  expect(dialog.open).toBe(false)
+  expect(post).not.toHaveBeenCalled()
+
+  await approveAll.trigger('click')
+  clickDialog('Approve all pending')
+  await vi.waitFor(() => {
+    expect(panel.get('button[aria-pressed]').text()).toContain('Applied')
+    expect(wrapper.get('header').text()).toContain('Branch: docter/review')
+  })
+  expect(post).toHaveBeenCalledTimes(1)
+  expect(readChanges).toHaveBeenCalledTimes(2)
+  expect(readSession).toHaveBeenCalledTimes(2)
+  expect(dialog.open).toBe(false)
 })
 
 it('loads session history and shows the project, mode, and branch', async () => {

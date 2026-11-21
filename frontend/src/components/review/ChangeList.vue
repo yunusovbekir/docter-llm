@@ -1,14 +1,32 @@
 <script setup lang="ts">
-import { useId } from 'vue'
+import { computed, ref, useId } from 'vue'
 import type { components } from '../../api/schema'
+import { canReview } from '../../composables/useReviewActions'
 import { useChanges } from '../../stores/changes'
 import AppBadge from '../common/AppBadge.vue'
 import AppButton from '../common/AppButton.vue'
+import AppModal from '../common/AppModal.vue'
 import AppSpinner from '../common/AppSpinner.vue'
 
-defineEmits<{ retry: [] }>()
+const props = defineProps<{ reviewBusy: boolean; approvingAll: boolean }>()
+const emit = defineEmits<{ retry: []; approveAll: [] }>()
 const store = useChanges()
 const heading = useId()
+const confirming = ref(false)
+const hasReviewable = computed(() => store.changeSets.some((set) => set.changes.some(canReview)))
+const hasOtherConflict = computed(() =>
+  store.changeSets.some((set) =>
+    set.changes.some(
+      (change) => change.status === 'conflict' && change.id !== store.selectedChangeId,
+    ),
+  ),
+)
+
+function confirmApproveAll() {
+  if (props.reviewBusy || !hasReviewable.value) return
+  confirming.value = false
+  emit('approveAll')
+}
 const statuses = {
   pending: { label: 'Pending', tone: 'warning' },
   approved: { label: 'Approved', tone: 'success' },
@@ -25,7 +43,20 @@ const statuses = {
     :aria-labelledby="heading"
     class="min-w-0 space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-800"
   >
-    <h2 :id="heading" class="text-lg font-semibold">Changes</h2>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h2 :id="heading" class="text-lg font-semibold">Changes</h2>
+      <AppButton
+        variant="secondary"
+        :disabled="reviewBusy || !hasReviewable"
+        :loading="approvingAll"
+        @click="confirming = true"
+      >
+        Approve all pending
+      </AppButton>
+    </div>
+    <p v-if="hasOtherConflict" role="status" class="text-sm text-amber-900 dark:text-amber-200">
+      Patches marked Conflict could not be applied.
+    </p>
     <AppSpinner v-if="store.loading && !store.changeSets.length" label="Loading changes" />
     <div v-if="store.error" class="space-y-2">
       <p role="alert" class="text-sm text-red-700 dark:text-red-300">{{ store.error }}</p>
@@ -72,5 +103,20 @@ const statuses = {
         </ul>
       </li>
     </ol>
+    <AppModal
+      :open="confirming"
+      title="Approve all pending changes?"
+      description="This applies all remaining reviewable hunks without overriding prior decisions."
+      @close="confirming = false"
+    >
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-2">
+          <AppButton variant="secondary" autofocus @click="confirming = false">Cancel</AppButton>
+          <AppButton :disabled="reviewBusy || !hasReviewable" @click="confirmApproveAll">
+            Approve all pending
+          </AppButton>
+        </div>
+      </template>
+    </AppModal>
   </aside>
 </template>

@@ -24,12 +24,17 @@ export const useSession = defineStore('session', () => {
     error.value = ''
   }
 
-  async function load(id: SessionDetail['id']) {
-    clear()
+  async function read(id: SessionDetail['id'], refresh: boolean) {
+    if (refresh) {
+      if (session.value?.id !== id) return
+      active?.abort()
+    } else {
+      clear()
+      loading.value = true
+    }
     const request = new AbortController()
     active = request
     const { signal } = request
-    loading.value = true
 
     try {
       const detail = await unwrap(
@@ -38,6 +43,7 @@ export const useSession = defineStore('session', () => {
       if (!detail) throw new ApiError('invalid_response', 'The API returned no session.', 0)
       if (signal.aborted) return
       session.value = detail
+      if (refresh) return
 
       try {
         const result = await unwrap(
@@ -57,7 +63,7 @@ export const useSession = defineStore('session', () => {
     } catch (cause) {
       if (signal.aborted) return
       const message = cause instanceof ApiError ? cause.message : 'Could not load the session.'
-      if (!(cause instanceof ApiError && cause.status === 404)) error.value = message
+      if (!refresh && !(cause instanceof ApiError && cause.status === 404)) error.value = message
       toast.error(message)
     } finally {
       if (active === request) {
@@ -67,5 +73,13 @@ export const useSession = defineStore('session', () => {
     }
   }
 
-  return { session, project, loading, error, load, clear }
+  return {
+    session,
+    project,
+    loading,
+    error,
+    clear,
+    load: (id: SessionDetail['id']) => read(id, false),
+    refresh: (id: SessionDetail['id']) => read(id, true),
+  }
 })

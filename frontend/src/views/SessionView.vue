@@ -8,6 +8,8 @@ import AppButton from '../components/common/AppButton.vue'
 import AppEmptyState from '../components/common/AppEmptyState.vue'
 import AppSpinner from '../components/common/AppSpinner.vue'
 import ChangeList from '../components/review/ChangeList.vue'
+import ReviewBar from '../components/review/ReviewBar.vue'
+import { canReview, useReviewActions } from '../composables/useReviewActions'
 import { useChanges } from '../stores/changes'
 import { useSession } from '../stores/session'
 
@@ -24,6 +26,7 @@ const id = computed(() => {
   const value = Number(props.id)
   return /^\d+$/.test(props.id) && Number.isSafeInteger(value) && value > 0 ? value : undefined
 })
+const { pending, review } = useReviewActions(id)
 const modeLabels = {
   add: 'Add',
   fix: 'Fix',
@@ -94,13 +97,23 @@ onScopeDispose(changes.clear)
         class="min-w-0"
         @change-proposed="reloadChanges"
       />
-      <div class="min-w-0 space-y-4">
-        <ChangeList @retry="reloadChanges()" />
-        <DiffViewer
-          v-if="changes.selectedChange"
-          :key="changes.selectedChange.id"
-          :change="changes.selectedChange"
+      <div :key="store.session.id" class="min-w-0 space-y-4">
+        <ChangeList
+          :review-busy="!!pending || changes.loading"
+          :approving-all="pending === 'approve-all'"
+          @retry="reloadChanges()"
+          @approve-all="review('approve-all')"
         />
+        <template v-if="changes.selectedChange">
+          <ReviewBar
+            :status="changes.selectedChange.status"
+            :disabled="!!pending || changes.loading || !canReview(changes.selectedChange)"
+            :pending="pending"
+            @approve="review('approve')"
+            @deny="review('deny')"
+          />
+          <DiffViewer :key="changes.selectedChange.id" :change="changes.selectedChange" />
+        </template>
         <AppEmptyState
           v-else
           title="No change selected"
