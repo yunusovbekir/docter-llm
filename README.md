@@ -1,24 +1,16 @@
-# Docter `beta`
+# Docter (Beta)
 
-Docter is an AI agent that runs on your own machine and works on the documentation of open-source libraries and SDKs. Point it at a local repository and it can:
+Docter is a locally run AI agent for reviewing and improving documentation in
+Git repositories. Its code index and coverage analysis focus on Python.
 
-- **Find missing docs:** produce a coverage report of public APIs that have no documentation.
-- **Add docs:** write docstrings and API reference pages.
-- **Fix docs:** find docstrings that no longer match the code, broken links, and examples that fail to run.
-- **Translate docs:** translate files into another language while keeping code blocks and Markdown structure intact.
-
-## How it works
-
-1. Select a local git repository and choose a mode.
-2. Chat with the agent to give it direction and context.
-3. Review each proposed change as a diff, then approve it, deny it, or comment on it. The agent revises the change based on your comments.
-4. Docter commits approved changes to a dedicated branch. Your working tree is never modified directly.
-
-Docter works with OpenAI, Anthropic, Ollama, and any other provider supported by [LiteLLM](https://github.com/BerriAI/litellm). API keys are stored in your OS keyring, never on disk.
+- **Add:** draft docstrings and API reference pages.
+- **Fix:** find and fix stale docstrings, broken links, and failing examples.
+- **Find Missing:** report documentation coverage and flag missing docs for public APIs.
+- **Translate:** translate documentation while preserving code blocks and Markdown structure.
 
 ## Quick start
 
-On Linux or WSL, install Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js
+On Linux or WSL, install Git, Python 3.12, [uv](https://docs.astral.sh/uv/), Node.js
 20.19+ (20.x), 22.13+ (22.x), or 24+, and pnpm 10. From the repository root, run:
 
 ```bash
@@ -31,11 +23,98 @@ starts MCP on demand and initializes its local SQLite database. Press Ctrl+C to
 stop both services. If your configured LLM provider is a separate local service
 such as Ollama, it still needs to be running.
 
-Set your LLM provider and API key under **Settings**, and add a project.
-Choose **Other** to enter a LiteLLM provider ID not listed in the menu. Leave
-the API key field blank to keep the provider's saved key, or choose **Remove key**
-and then **Save** to delete it. Select **Test connection** to check the saved
-configuration and see the latency or error. Ollama can be tested without a saved key.
+1. In **Settings**, choose a provider, enter an API key if required, and select
+   **Save**, then **Test connection**. Docter supports OpenAI, Anthropic, Ollama,
+   and other [LiteLLM](https://github.com/BerriAI/litellm) providers via **Other**.
+2. In **Projects**, register a local Git repository using its absolute path on
+   the machine running the backend. Open the project and choose **Index**.
+3. Once indexing finishes, choose a mode and select **Start session**. Translate
+   requires a target language tag such as `de` or `pt-BR`. Send a message to tell
+   the agent what to work on.
+4. In **Changes**, select a proposed file to review its diff. Approve or deny the
+   whole change or individual hunks, or leave a comment to request a revision.
+   Docter commits approved changes on a dedicated `docsmith/` branch in a
+   separate worktree, leaving your original worktree untouched.
+
+Docter stores API keys in the OS keyring, not its database. If saving a key
+fails on WSL or a headless setup, check the
+[keyring requirements](backend/README.md#keyring-availability). Leave the key field
+blank to keep the saved key, or select **Remove key** and **Save** to delete it.
+The app runs locally, but a cloud model provider receives the context sent to it,
+which can include repository content. Ollama can run locally without a saved key.
+
+## Using Docter
+
+- **Projects:** **Index** and **Re-index** show live progress, the last successful
+  indexing time, and any failure details. A dirty worktree does not block
+  registration. Removing a project from Docter does not delete repository files.
+- **Chat:** Press Enter to send or Shift+Enter for a new line. Select **Stop** to
+  cancel an active run. Expand tool cards to inspect their arguments and results;
+  warnings and errors appear inline.
+- **Review:** Switch between side-by-side and inline diffs, or select a hunk
+  header to jump to it. **Approve all pending** asks for confirmation. A conflict
+  means the patch could not be applied. Review comments stream the revision into
+  chat; version links let you navigate between proposals.
+- **Coverage:** Filter gaps by missing type or sort by file. Select symbols and
+  choose **Send to Add mode** to create an Add session for the same project with an
+  editable draft. The draft is not sent automatically.
+- **History:** Filter sessions by project, check pending, applied, and denied
+  change counts, copy the branch name, or resume a session. Deleting a session
+  removes its history and worktree but keeps its Git branch, if one exists.
+
+## System architecture
+
+Docter runs the browser UI, API, and MCP server on your machine. The backend
+coordinates the workflow: the UI never calls Git, MCP, or the model provider
+directly. Depending on your settings, the model provider can be local or remote.
+
+```mermaid
+flowchart LR
+    User["User"]
+    Provider["Model provider<br/>local or cloud"]
+
+    subgraph Local["On your machine"]
+        UI["Browser UI<br/>Vue"]
+        API["Backend<br/>FastAPI and agent"]
+        MCP["MCP server<br/>repository and documentation tools"]
+        Contract["Shared MCP tool schemas"]
+        AppDB[("App SQLite database<br/>projects, sessions, and changes")]
+        Index[("Local code and docs index")]
+        Repo["Original Git checkout"]
+        Worktree["Session Git worktree<br/>docsmith/ branch"]
+    end
+
+    User -->|actions| UI
+    UI -->|HTTP requests| API
+    API -->|JSON responses or SSE events| UI
+    API <-->|stdio: tool calls, results, and progress| MCP
+    API <-->|model requests and completions via LiteLLM| Provider
+    API -.-> Contract
+    MCP -.-> Contract
+    API <-->|persist and load state| AppDB
+    MCP -->|read and analyze| Repo
+    MCP <-->|build and query| Index
+    API -->|apply and commit approved changes| Worktree
+```
+
+### Request and response flow
+
+1. **Index a project.** The UI sends a request to start indexing. The backend
+   returns `202 Accepted` and runs the job in the background. MCP reads the
+   checkout and builds the local index; the UI polls the backend for progress
+   and the final status.
+2. **Send a message.** The UI posts to the session's chat endpoint. The backend
+   asks the model for a response and calls MCP tools as needed. It sends text,
+   tool results, and proposal notifications back as server-sent events (SSE).
+   The UI fetches the saved patches separately to show their diffs.
+3. **Review a proposal.** The UI submits a decision over HTTP. Approval applies
+   and commits the approved changes on the session branch, leaving the original
+   checkout untouched. Denial records the decision without applying the patch.
+   A review comment starts a revision run that streams back into the same chat.
+
+See the [frontend](frontend/README.md#architecture),
+[backend](backend/README.md#architecture), and
+[MCP server](mcp_server/README.md#architecture) diagrams for component internals.
 
 ## Backend development
 
@@ -86,10 +165,17 @@ pnpm dev     # http://localhost:5173
 `http://127.0.0.1:8000/openapi.json`, or from the checked-in
 `frontend/src/api/openapi.json` when the endpoint is unavailable.
 
-To run the Playwright happy path from `frontend/`, install Chromium with
-`pnpm exec playwright install --with-deps chromium` on Linux, then run `pnpm build`
-and `pnpm e2e`. Playwright starts `pnpm preview` on `127.0.0.1:4173` and mocks
-the API and chat event stream. No backend, API key, or local Git repository is needed.
+To run the Chromium smoke test used in frontend CI, run from `frontend/` on Linux:
+
+```bash
+pnpm exec playwright install --with-deps chromium
+pnpm build
+pnpm e2e
+```
+
+Playwright starts `pnpm preview` on `127.0.0.1:4173` and exercises the Fix workflow
+from saving settings through approving a change. It mocks the API and chat event
+stream, so it needs no running backend, API key, or test Git repository.
 
 Shared UI primitives live in `frontend/src/components/common/`. Bind `AppInput`
 and `AppSelect` with `v-model` and provide a visible `label`. Control `AppModal`
@@ -112,42 +198,12 @@ Vite forwards `/api` to `http://127.0.0.1:8000` by default, or to the port set b
 `DOCTER_PORT`. Run `pnpm preview` from `frontend/` to serve the production build
 locally.
 
-The Docter app opens on Projects. Register a local Git repository using its
-absolute path on the machine running the backend. A dirty working tree does not
-block registration. Removing a project from Docter does not delete repository
-files. Open a project and select Index or Re-index to build its code index. The
-project page shows live progress, the last successful indexing time, and any
-failure details. Once indexing is complete, start an Add, Fix, Find Missing, or
-Translate session from the project page. Translate requires a target language
-tag such as `de` or `pt-BR`. Open a session to see its conversation history and
-stream new assistant replies. Press Enter to send or Shift+Enter for a new line.
-While a run is active, the message input is disabled. Select Stop to cancel it.
-Expand a tool-call card to inspect its arguments and result. Warnings and errors
-appear inline in the conversation.
-The Changes panel lists proposed files by change set, newest first, and refreshes
-as new proposals arrive. Select a file to open its read-only diff. Switch between
-side-by-side and inline layouts; the browser remembers your preference.
-Approve or deny the selected change above its diff, or use **Approve all pending**
-to review remaining changes in bulk after confirming. Conflicts are flagged when
-a patch could not be applied.
-For finer review, select pending hunks and approve or deny just those hunks.
-Select a hunk header to jump to it in the diff.
-Leave a review comment on the whole change or a specific hunk to request a
-revision. The run streams into chat, and version links let you compare the new
-proposal with its predecessor.
-Find Missing results show documentation coverage and a list of gaps you can filter
-by missing type or sort by file. Select symbols and choose **Send to Add mode** to
-open an Add session for the same project with an editable draft. Nothing is sent
-until you submit the draft.
-In **History**, filter sessions by project, check how many proposals are pending,
-applied, or denied, copy a session's branch name, or resume the session. Deleting
-a session removes its history and worktree but keeps its Git branch, if one exists.
-
 If you serve `frontend/dist` outside Vite, configure your server to serve `index.html`
 for client-side routes, without rewriting `/api` requests.
 
 ## Documentation
 
 - [Backend](backend/README.md): configuration, API reference, and development guide.
-- [MCP server](mcp_server/README.md): stdio setup, sandbox rules, tools, and resources.
+- [Frontend](frontend/README.md): architecture, client state, and REST and streaming workflows.
+- [MCP server](mcp_server/README.md): architecture, stdio setup, repository access rules, tools, and resources.
 - [Tool contract](contract/README.md): the shared MCP tool schemas and how to regenerate `contract/schema.json`.
