@@ -125,6 +125,8 @@ side-by-side and inline layouts; the browser remembers your preference.
 Approve or deny the selected change above its diff, or use **Approve all pending**
 to review remaining changes in bulk after confirming. Conflicts are flagged when
 a patch could not be applied.
+For finer review, select pending hunks and approve or deny just those hunks.
+Select a hunk header to jump to it in the diff.
 The sidebar links to History and Settings. If you serve `frontend/dist` outside
 Vite, configure your server to serve `index.html` for client-side routes, without
 rewriting `/api` requests.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, h, onScopeDispose, watch } from 'vue'
+import { computed, defineAsyncComponent, h, onScopeDispose, useTemplateRef, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { components } from '../api/schema'
 import ChatPanel from '../components/chat/ChatPanel.vue'
@@ -8,6 +8,7 @@ import AppButton from '../components/common/AppButton.vue'
 import AppEmptyState from '../components/common/AppEmptyState.vue'
 import AppSpinner from '../components/common/AppSpinner.vue'
 import ChangeList from '../components/review/ChangeList.vue'
+import HunkList from '../components/review/HunkList.vue'
 import ReviewBar from '../components/review/ReviewBar.vue'
 import { canReview, useReviewActions } from '../composables/useReviewActions'
 import { useChanges } from '../stores/changes'
@@ -18,6 +19,7 @@ const DiffViewer = defineAsyncComponent({
   loadingComponent: () => h(AppSpinner, { label: 'Loading diff viewer' }),
   errorComponent: () => h(AppEmptyState, { title: 'Could not load the diff viewer' }),
 })
+const diff = useTemplateRef<InstanceType<typeof DiffViewer>>('diff')
 
 const props = defineProps<{ id: string }>()
 const store = useSession()
@@ -112,7 +114,20 @@ onScopeDispose(changes.clear)
             @approve="review('approve')"
             @deny="review('deny')"
           />
-          <DiffViewer :key="changes.selectedChange.id" :change="changes.selectedChange" />
+          <HunkList
+            :key="changes.selectedChange.id"
+            :hunks="changes.selectedChange.hunks"
+            :disabled="!!pending || changes.loading || !canReview(changes.selectedChange)"
+            :can-jump="!!diff"
+            @approve="review('approve', $event)"
+            @deny="review('deny', $event)"
+            @jump="diff?.scrollToLine($event)"
+          />
+          <DiffViewer
+            ref="diff"
+            :key="changes.selectedChange.id"
+            :change="changes.selectedChange"
+          />
         </template>
         <AppEmptyState
           v-else

@@ -12,19 +12,34 @@ import { server } from '../test/msw'
 import type { StreamEvent } from '../types/events'
 
 vi.mock('../composables/useEventStream', () => ({ useEventStream: vi.fn() }))
-vi.mock('@guolao/vue-monaco-editor', () => ({
-  loader: { config: vi.fn() },
-  VueMonacoDiffEditor: defineComponent({
-    props: {
-      original: { type: String, required: true },
-      modified: { type: String, required: true },
-      language: { type: String, required: true },
-      theme: { type: String, required: true },
-      options: { type: Object, required: true },
-    },
-    setup: (props) => () => h('div', { 'data-monaco': JSON.stringify(props) }),
-  }),
-}))
+const revealLine = vi.hoisted(() => vi.fn())
+vi.mock('@guolao/vue-monaco-editor', async () => {
+  const { onMounted } = await import('vue')
+  return {
+    loader: { config: vi.fn() },
+    VueMonacoDiffEditor: defineComponent({
+      props: {
+        original: { type: String, required: true },
+        modified: { type: String, required: true },
+        language: { type: String, required: true },
+        theme: { type: String, required: true },
+        options: { type: Object, required: true },
+      },
+      emits: ['mount'],
+      setup(props, { emit }) {
+        onMounted(() =>
+          emit('mount', {
+            getModifiedEditor: () => ({
+              getModel: () => ({ getLineCount: () => 100 }),
+              revealLineInCenter: revealLine,
+            }),
+          }),
+        )
+        return () => h('div', { 'data-monaco': JSON.stringify(props) })
+      },
+    }),
+  }
+})
 vi.mock('monaco-editor', () => ({
   languages: {
     getLanguages: () => [{ id: 'markdown', extensions: ['.md'] }],
@@ -358,6 +373,56 @@ function mockReview(action: 'approve' | 'deny' | 'approve-all', status: Change['
   )
   return { readChanges, readSession, post }
 }
+
+it.each(['approve', 'deny'] as const)(
+  'sends only selected pending hunk indices to %s and jumps to a hunk',
+  async (action) => {
+    revealLine.mockClear()
+    const set = changeSet(1, '01', 'partial')
+    const change = set.changes[0]!
+    const base = change.hunks[0]!
+    change.hunks = [
+      { ...base, index: 0, status: 'applied' },
+      { ...base, id: base.id + 1, index: 1, status: 'pending', header: '@@ -7,2 +12,3 @@' },
+      { ...base, id: base.id + 2, index: 2, status: 'denied' },
+      { ...base, id: base.id + 3, index: 3, status: 'pending', header: '@@ -25,2 +30,0 @@' },
+    ]
+    const payload = vi.fn()
+    server.use(
+      http.get('/api/sessions/17/changes', () => HttpResponse.json([set])),
+      http.post(`/api/changes/10/${action}`, async ({ request }) => {
+        payload(await request.json())
+        for (const hunk of change.hunks) {
+          if (hunk.status === 'pending') hunk.status = action === 'approve' ? 'applied' : 'denied'
+        }
+        return HttpResponse.json(change)
+      }),
+    )
+    const { wrapper } = await render()
+    await vi.waitFor(() => expect(wrapper.find('aside [aria-pressed]').exists()).toBe(true))
+    await wrapper.get('aside [aria-pressed]').trigger('click')
+    const list = wrapper.get('fieldset')
+    const boxes = list.findAll<HTMLInputElement>('input[type="checkbox"]')
+    expect(boxes.map(({ element }) => element.disabled)).toEqual([true, false, true, false])
+    const submit = list
+      .findAll('button')
+      .find((button) => button.text().toLowerCase() === `${action} selected`)!
+    expect(submit.element.disabled).toBe(true)
+    if (action === 'approve') {
+      const jump = list.findAll('button').find((button) => button.text() === '@@ -7,2 +12,3 @@')!
+      await vi.waitFor(() => expect(jump.element.disabled).toBe(false))
+      await jump.trigger('click')
+      expect(revealLine).toHaveBeenCalledExactlyOnceWith(12)
+    }
+    await boxes[3]!.setValue(true)
+    await boxes[1]!.setValue(true)
+    await submit.trigger('click')
+    await vi.waitFor(() => expect(payload).toHaveBeenCalledExactlyOnceWith({ hunks: [1, 3] }))
+    await vi.waitFor(() =>
+      expect(boxes.every(({ element }) => element.disabled && !element.checked)).toBe(true),
+    )
+  },
+)
 
 it.each([
   ['approve', 'applied', 'Applied'],
