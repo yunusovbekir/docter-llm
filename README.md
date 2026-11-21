@@ -32,6 +32,9 @@ stop both services. If your configured LLM provider is a separate local service
 such as Ollama, it still needs to be running.
 
 Set your LLM provider and API key under **Settings**, and add a project.
+Choose **Other** to enter a LiteLLM provider ID not listed in the menu. Leave
+the API key field blank to keep the provider's saved key, or choose **Remove key**
+and then **Save** to delete it.
 
 ## Backend development
 

@@ -1,4 +1,5 @@
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { http, HttpResponse } from 'msw'
 import { createPinia, disposePinia } from 'pinia'
 import { afterEach, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
@@ -6,6 +7,7 @@ import { createMemoryHistory } from 'vue-router'
 import App from './App.vue'
 import { createAppRouter } from './router'
 import { useToast } from './stores/toast'
+import { server } from './test/msw'
 
 enableAutoUnmount(afterEach)
 
@@ -25,11 +27,17 @@ it.each([
   ['/history', 'History'],
   ['/settings', 'Settings'],
 ])('renders %s in the app shell', async (path, heading) => {
+  if (path === '/settings') {
+    server.use(http.get('/api/settings', () => new HttpResponse(null, { status: 204 })))
+  }
   const { wrapper } = await renderAt(path)
 
   expect(wrapper.get('header').text()).toBe('Docter')
-  expect(wrapper.get('main > h1').text()).toBe(heading)
+  expect(wrapper.get('main h1').text()).toBe(heading)
   expect(wrapper.get('main').element.childElementCount).toBe(1)
+  if (path === '/settings') {
+    await vi.waitFor(() => expect(wrapper.get('main h2').text()).toBe('No settings available'))
+  }
 })
 
 it('redirects the root to Projects', async () => {
