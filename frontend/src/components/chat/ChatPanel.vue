@@ -5,7 +5,13 @@ import ChatInput from './ChatInput.vue'
 import MessageList from './MessageList.vue'
 
 const props = defineProps<{ session: components['schemas']['SessionDetail'] }>()
-const { entries, waiting, runActive, busy, stopping, send, stop } = useChat(props.session)
+const emit = defineEmits<{
+  changeProposed: [sessionId: components['schemas']['SessionDetail']['id']]
+}>()
+const session = props.session
+const { entries, waiting, runActive, busy, stopping, send, stop } = useChat(session, () => {
+  emit('changeProposed', session.id)
+})
 </script>
 
 <template>

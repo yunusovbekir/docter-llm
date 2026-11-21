@@ -7,6 +7,7 @@ import { createMemoryHistory, RouterView } from 'vue-router'
 import type { components } from '../api/schema'
 import { useEventStream } from '../composables/useEventStream'
 import { createAppRouter } from '../router'
+import { useChanges } from '../stores/changes'
 import { server } from '../test/msw'
 import type { StreamEvent } from '../types/events'
 
@@ -97,6 +98,7 @@ function mockStream() {
 enableAutoUnmount(afterEach)
 beforeEach(() => {
   server.use(http.get('/api/projects/8', () => HttpResponse.json(project)))
+  server.use(http.get('/api/sessions/17/changes', () => HttpResponse.json([])))
   mockHistory()
 })
 
@@ -164,8 +166,100 @@ async function render() {
   const pinia = createPinia()
   const wrapper = mount(RouterView, { global: { plugins: [pinia, router] } })
   await vi.waitFor(() => expect(wrapper.find('[role="log"]').exists()).toBe(true))
-  return { wrapper, stream }
+  return { wrapper, stream, changes: useChanges(pinia), router }
 }
+
+type ChangeSet = components['schemas']['ChangeSetRead']
+type Change = components['schemas']['ChangeRead']
+
+function changeSet(id: number, day: string, ...statuses: Change['status'][]): ChangeSet {
+  const created_at = `2026-01-${day}T00:00:00Z`
+  return {
+    id,
+    session_id: session.id,
+    run_id: `run-${id}`,
+    created_at,
+    changes: statuses.map((status, index) => {
+      const changeId = id * 10 + index
+      return {
+        id: changeId,
+        change_set_id: id,
+        file_path: `docs/${status}.md`,
+        patch: '',
+        rationale: '',
+        status,
+        parent_change_id: null,
+        created_at,
+        original_content: '',
+        proposed_content: '',
+        hunks: Array.from({ length: index + 1 }, (_, index) => ({
+          id: changeId * 10 + index,
+          change_id: changeId,
+          index,
+          header: '@@ -1 +1 @@',
+          status,
+        })),
+        comments: [],
+      }
+    }),
+  }
+}
+
+it('groups files newest first and shows each status and hunk count', async () => {
+  server.use(
+    http.get('/api/sessions/17/changes', () =>
+      HttpResponse.json([
+        changeSet(2, '01', 'pending', 'applied', 'denied'),
+        changeSet(1, '02', 'partial', 'conflict', 'revised'),
+      ]),
+    ),
+  )
+  const { wrapper, changes, router } = await render()
+  const panel = wrapper.get('aside')
+  await vi.waitFor(() => expect(panel.findAll('h3')).toHaveLength(2))
+  expect(panel.findAll('h3 span').map((title) => title.text())).toEqual([
+    'Change set #1',
+    'Change set #2',
+  ])
+  const rows = panel.findAll('button')
+  expect(rows.map((row) => row.text())).toEqual([
+    'docs/partial.mdPartial1 hunk',
+    'docs/conflict.mdConflict2 hunks',
+    'docs/revised.mdRevised3 hunks',
+    'docs/pending.mdPending1 hunk',
+    'docs/applied.mdApplied2 hunks',
+    'docs/denied.mdDenied3 hunks',
+  ])
+  expect(rows[1]!.get('span.bg-red-100').text()).toBe('Conflict')
+  await rows[1]!.trigger('click')
+  expect(changes.selectedChangeId).toBe(11)
+  expect(rows[1]!.attributes('aria-pressed')).toBe('true')
+  await rows[0]!.trigger('click')
+  expect(changes.selectedChangeId).toBe(10)
+  expect(rows[1]!.attributes('aria-pressed')).toBe('false')
+
+  await router.push('/history')
+  expect(changes.selectedChangeId).toBeNull()
+})
+
+it('reloads on a proposed change without dropping the current selection', async () => {
+  const sets = [changeSet(1, '01', 'pending')]
+  const load = vi.fn(() => HttpResponse.json(sets))
+  server.use(http.get('/api/sessions/17/changes', load))
+  const { wrapper, stream, changes } = await render()
+  const panel = wrapper.get('aside')
+  await vi.waitFor(() => expect(panel.text()).toContain('docs/pending.md'))
+  await panel.get('button').trigger('click')
+  await wrapper.get('textarea').setValue('Update the docs')
+  await wrapper.get('form').trigger('submit')
+  sets.push(changeSet(2, '02', 'applied'))
+  await stream.emit({ type: 'change_proposed', change_id: 20, file_path: 'docs/applied.md' })
+  await vi.waitFor(() => expect(panel.text()).toContain('docs/applied.md'))
+  expect(load).toHaveBeenCalledTimes(2)
+  expect(changes.selectedChangeId).toBe(10)
+  expect(panel.get('[aria-pressed="true"]').text()).toContain('docs/pending.md')
+  await stream.finish()
+})
 
 it('loads session history and shows the project, mode, and branch', async () => {
   mockHistory(

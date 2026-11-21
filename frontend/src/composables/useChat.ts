@@ -8,7 +8,7 @@ import { useEventStream } from './useEventStream'
 
 type Session = components['schemas']['SessionDetail']
 
-export function useChat(session: Session) {
+export function useChat(session: Session, onChangeProposed: () => void) {
   const entries = reactive(chatHistory(session.messages))
   const pending = new Map<string, ChatToolCall>()
   let reply: ChatMessage | undefined
@@ -27,6 +27,9 @@ export function useChat(session: Session) {
 
   stream.onEvent((event, httpStatus) => {
     switch (event.type) {
+      case 'change_proposed':
+        onChangeProposed()
+        break
       case 'token':
         if (reply) reply.text += event.text
         else {
