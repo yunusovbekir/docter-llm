@@ -72,6 +72,63 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    Client["Client"]
+
+    subgraph Backend["Docter backend"]
+        App["FastAPI app<br/>main.py: startup, shutdown, service wiring"]
+        API["HTTP routers and SSE transport<br/>api/"]
+        Projects["Projects and settings<br/>register repositories, configure the model"]
+        Index["Indexing service<br/>background jobs and progress"]
+        Sessions["Session service<br/>history and cancellable chat runs"]
+        Review["Review service<br/>approve, deny, or request a revision"]
+        Agent["Agent orchestrator<br/>mode policy, model/tool loop, typed events"]
+        Proposals["Change sink<br/>validate patches and save diff snapshots"]
+        Gateway["LiteLLM gateway<br/>llm/"]
+        MCPClient["MCP manager<br/>mcp_client/"]
+        Git["Git helpers<br/>repository checks, patch validation, commits"]
+        DB[("SQLite<br/>SQLModel via db.py")]
+
+        App --> API
+        API --> Projects
+        API --> Index
+        API --> Sessions
+        API --> Review
+
+        Projects --> DB
+        Projects --> Git
+        Index -->|record index status| DB
+        Index -->|index_repo| MCPClient
+        Sessions -->|save runs and messages| DB
+        Sessions -->|start run| Agent
+        Agent -->|emit events| Sessions
+        Sessions -->|stream run events| API
+        Agent -->|model requests| Gateway
+        Agent -->|tool calls| MCPClient
+        Agent -->|proposed patch| Proposals
+        Proposals --> Git
+        Proposals -->|save changes and hunks| DB
+        Review -->|save decisions and comments| DB
+        Review -->|apply approved hunks| Git
+        Review -->|start revision run| Sessions
+    end
+
+    Client -->|HTTP requests| API
+    API -->|JSON or SSE| Client
+    Gateway <-->|completions| Provider["Model provider"]
+    Projects -->|store or remove API keys| Keyring["OS keyring"]
+    Git -->|commit on a session branch| Worktree["Separate Git worktree"]
+    MCPClient <-->|stdio| MCP["MCP server"]
+    Agent -.->|validate proposal tool outputs| Contract["Shared tool contract"]
+```
+
+The key distinction is that **chat proposes changes; review applies them**.
+Chat and revision runs stream events back over SSE and save proposals for
+inspection. Approval applies the selected hunks in a separate session worktree;
+denial records a decision without applying a patch. Indexing runs separately:
+the client polls the backend for progress rather than opening an SSE stream.
+
 | Module              | Responsibility                                                                 |
 |---------------------|--------------------------------------------------------------------------------|
 | `main.py`           | `create_app()` factory, lifespan, CORS, routers, and static UI mount           |

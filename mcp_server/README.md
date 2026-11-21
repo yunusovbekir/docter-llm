@@ -6,6 +6,56 @@ and output schemas are the shared `docter_contract` models, including flat tool 
 The server never writes to the target repository itself. Repository code is executed
 only by explicitly enabled documentation example checks; see the execution warning below.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    Client["MCP client"]
+    Contract["Shared tool contract"]
+    Repo["Target Git checkout"]
+    Store[("Local index<br/>SQLite metadata and LanceDB vectors")]
+
+    subgraph Server["Docter MCP server"]
+        Entry["MCPServer<br/>server.py: registers tools, resources, and prompts"]
+        Read["Repository tools and resources<br/>file reads, docs list, style guide, glossaries"]
+        Prompts["Prompts<br/>Add, Fix, Find Missing, Translate"]
+        Index["Index and search<br/>incremental indexing, local embeddings, symbol lookup"]
+        Analysis["Documentation analysis<br/>coverage gaps, drift, opt-in example checks"]
+        Parse["Static parser<br/>Python symbols and docstrings"]
+        Translate["Translation<br/>Markdown segmentation and client sampling"]
+        Patches["Patch proposals<br/>produce a diff; do not apply it"]
+        Paths["Repository path checks<br/>Git root, allowlist, safe file resolution"]
+
+        Entry --> Read
+        Entry --> Prompts
+        Entry --> Index
+        Entry --> Analysis
+        Entry --> Translate
+        Entry --> Patches
+        Index --> Parse
+        Analysis --> Parse
+        Translate -->|glossary| Read
+        Translate -->|prepare translated file proposal| Patches
+        Read --> Paths
+        Index --> Paths
+        Analysis --> Paths
+        Translate --> Paths
+        Patches --> Paths
+    end
+
+    Client <-->|stdio: requests, results, progress| Entry
+    Entry -.->|tool input and output schemas| Contract
+    Translate -.->|sampling request over MCP| Client
+    Paths -->|resolve repository and file paths| Repo
+    Index <-->|read and publish index generations| Store
+```
+
+Tool calls name their repository explicitly; resources and prompts use the
+repository selected at server startup. Search and symbol lookup use a local
+index, while coverage checks analyze the current files without requiring an
+index. Translation asks the MCP client to generate text through sampling, then
+returns a proposed diff. Applying that diff is the caller's responsibility.
+
 ## Install
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git, then run
