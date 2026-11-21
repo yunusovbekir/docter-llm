@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import AppButton from '../components/common/AppButton.vue'
 import AppEmptyState from '../components/common/AppEmptyState.vue'
 import AppSpinner from '../components/common/AppSpinner.vue'
+import NewSessionForm from '../components/project/NewSessionForm.vue'
 import { useIndexStatus } from '../composables/useIndexStatus'
 import { useProjectDetail } from '../composables/useProjectDetail'
 
@@ -101,6 +102,11 @@ const messages = {
           <AppButton variant="secondary" @click="retryStatus">Retry status check</AppButton>
         </div>
       </section>
+      <NewSessionForm
+        :key="project.id"
+        :project-id="project.id"
+        :can-start="status?.status === 'done' && !starting && !statusError"
+      />
     </template>
   </section>
 </template>
