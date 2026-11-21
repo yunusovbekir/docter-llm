@@ -69,6 +69,7 @@ function confirmApproveAll() {
         <ul class="space-y-1">
           <li v-for="change in set.changes" :key="change.id">
             <button
+              :id="`change-${change.id}`"
               type="button"
               :aria-pressed="store.selectedChangeId === change.id"
               class="block w-full space-y-1 rounded-md border p-2 text-left text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 dark:focus-visible:outline-blue-400"

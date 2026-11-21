@@ -11,6 +11,10 @@ type ReviewAction = 'approve' | 'deny' | 'approve-all'
 
 const reviewable = new Set<Change['status']>(['pending', 'approved', 'partial', 'conflict'])
 
+export function canComment(change: Change) {
+  return change.status === 'revised' || reviewable.has(change.status)
+}
+
 export function canReview(change: Change) {
   return (
     reviewable.has(change.status) &&

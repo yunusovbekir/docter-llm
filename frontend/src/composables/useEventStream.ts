@@ -3,7 +3,7 @@ import {
   fetchEventSource,
   type EventSourceMessage,
 } from '@microsoft/fetch-event-source'
-import { onScopeDispose, readonly, ref } from 'vue'
+import { onScopeDispose, readonly, ref, toValue, type MaybeRefOrGetter } from 'vue'
 import { ApiError, normalizeHttpError } from '../api/client'
 import type { StreamEvent } from '../types/events'
 
@@ -86,7 +86,7 @@ function parseEvent({ event, data }: EventSourceMessage): StreamEvent | undefine
 
 type Listener = (event: StreamEvent, httpStatus?: number) => void
 
-export function useEventStream(url: string, body: unknown) {
+export function useEventStream<T>(url: MaybeRefOrGetter<string>, body: MaybeRefOrGetter<T>) {
   const isStreaming = ref(false)
   const listeners = new Set<Listener>()
   let active: AbortController | undefined
@@ -129,14 +129,14 @@ export function useEventStream(url: string, body: unknown) {
     try {
       let json: string | undefined
       try {
-        json = JSON.stringify(body)
+        json = JSON.stringify(toValue(body))
       } catch (cause) {
         throw new ApiError('invalid_request', 'The stream body is not valid JSON.', 0, { cause })
       }
       if (json === undefined)
         throw new ApiError('invalid_request', 'The stream requires a JSON body.', 0)
 
-      await fetchEventSource(url, {
+      await fetchEventSource(toValue(url), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: json,

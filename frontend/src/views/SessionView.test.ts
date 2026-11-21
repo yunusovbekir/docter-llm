@@ -2,7 +2,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { http, HttpResponse } from 'msw'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { defineComponent, h, nextTick, ref } from 'vue'
+import { defineComponent, h, nextTick, ref, toValue } from 'vue'
 import { createMemoryHistory, RouterView } from 'vue-router'
 import type { components } from '../api/schema'
 import { useEventStream } from '../composables/useEventStream'
@@ -97,7 +97,7 @@ function mockStream() {
     return {
       isStreaming,
       start: async () => {
-        post(url, { ...(body as components['schemas']['ChatRequest']) })
+        post(toValue(url), toValue(body))
         isStreaming.value = true
         await new Promise<void>((resolve) => {
           finish = resolve
@@ -242,6 +242,57 @@ function changeSet(id: number, day: string, ...statuses: Change['status'][]): Ch
     }),
   }
 }
+
+it.each([false, true])(
+  'streams a revision in chat and reloads changes (hunk scope: %s)',
+  async (hunk) => {
+    const original = changeSet(1, '01', 'pending')
+    const replacement = changeSet(2, '02', 'pending')
+    replacement.changes[0]!.parent_change_id = 10
+    const load = vi.fn(() => HttpResponse.json([original]))
+    server.use(http.get('/api/sessions/17/changes', load))
+    const { wrapper, stream } = await render()
+    const change = wrapper.get('aside')
+    await vi.waitFor(() => expect(change.find('[aria-pressed]').exists()).toBe(true))
+    await change.get('[aria-pressed]').trigger('click')
+    const form = wrapper.findAll('form').at(-1)!
+    if (hunk) await form.get('select').setValue('0')
+    await form.get('textarea').setValue('Clarify this example.')
+    await form.trigger('submit')
+    expect(stream.post).toHaveBeenCalledExactlyOnceWith(
+      '/api/changes/10/comment',
+      hunk ? { text: 'Clarify this example.', hunk_index: 0 } : { text: 'Clarify this example.' },
+    )
+    expect(wrapper.get('[aria-label="Chat"] textarea').attributes('disabled')).toBeDefined()
+    await stream.emit({ type: 'token', text: 'Here is the revision.' })
+    expect(wrapper.get('[role="log"]').text()).toContain('Here is the revision.')
+
+    original.changes[0]!.status = 'revised'
+    load.mockImplementation(() => HttpResponse.json([original, replacement]))
+    await stream.emit({ type: 'done' })
+    await stream.finish()
+    await vi.waitFor(() => expect(change.findAll('[aria-pressed]')).toHaveLength(2))
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(form.get('textarea').element.value).toBe('')
+  },
+)
+
+it('navigates to a child revision and back to the previous version', async () => {
+  const previous = changeSet(1, '01', 'revised')
+  const next = changeSet(2, '02', 'pending')
+  next.changes[0]!.parent_change_id = 10
+  server.use(http.get('/api/sessions/17/changes', () => HttpResponse.json([previous, next])))
+  const { wrapper, changes } = await render()
+  await vi.waitFor(() => expect(wrapper.find('#change-10').exists()).toBe(true))
+  await wrapper.get('#change-10').trigger('click')
+  const chain = wrapper.get('[aria-label="Revision chain"]')
+  expect(chain.get('a').text()).toBe('View new version')
+  await chain.get('a').trigger('click')
+  expect(changes.selectedChangeId).toBe(20)
+  expect(chain.get('a').text()).toBe('View previous version')
+  await chain.get('a').trigger('click')
+  expect(changes.selectedChangeId).toBe(10)
+})
 
 it('groups files newest first and shows each status and hunk count', async () => {
   server.use(

@@ -7,28 +7,44 @@ import { chatHistory } from './chatHistory'
 import { useEventStream } from './useEventStream'
 
 type Session = components['schemas']['SessionDetail']
+type Comment = components['schemas']['CommentCreate']
+type ChangeId = components['schemas']['ChangeRead']['id']
 
-export function useChat(session: Session, onChangeProposed: () => void) {
+export function useChat(session: Session, reloadChanges: () => void) {
   const entries = reactive(chatHistory(session.messages))
   const pending = new Map<string, ChatToolCall>()
   let reply: ChatMessage | undefined
   let nextId = 0
   const key = () => `live-${++nextId}`
-  const body: components['schemas']['ChatRequest'] = { message: '' }
-  const stream = useEventStream(`/api/sessions/${session.id}/chat`, body)
+  const chatUrl = `/api/sessions/${session.id}/chat`
+  let url = chatUrl
+  let body: components['schemas']['ChatRequest'] | Comment = { message: '' }
+  const stream = useEventStream(
+    () => url,
+    () => body,
+  )
   const toast = useToast()
   const externalRun = ref(session.run_status === 'running')
   const stopping = ref(false)
+  const submitting = ref(false)
   const runActive = computed(() => stream.isStreaming.value || externalRun.value)
-  const busy = computed(() => runActive.value || stopping.value)
+  const busy = computed(() => runActive.value || stopping.value || submitting.value)
   const lifetime = new AbortController()
   onScopeDispose(() => lifetime.abort())
   let userKey: string | undefined
+  let rejected = false
 
   stream.onEvent((event, httpStatus) => {
+    if (event.type === 'error' && httpStatus && httpStatus >= 400) {
+      rejected = true
+      if (httpStatus === 409 || url !== chatUrl) {
+        const index = entries.findIndex((entry) => entry.key === userKey)
+        if (index !== -1) entries.splice(index, 1)
+      }
+    }
     switch (event.type) {
       case 'change_proposed':
-        onChangeProposed()
+        reloadChanges()
         break
       case 'token':
         if (reply) reply.text += event.text
@@ -61,8 +77,6 @@ export function useChat(session: Session, onChangeProposed: () => void) {
         reply = undefined
         if (event.type === 'error' && httpStatus === 409) {
           externalRun.value = true
-          const index = entries.findIndex((entry) => entry.key === userKey)
-          if (index !== -1) entries.splice(index, 1)
           entries.push({ key: key(), role: 'error', text: 'A run is already in progress' })
         } else if (!(stopping.value && event.type === 'error' && event.code === 'network_error')) {
           entries.push({ key: key(), role: event.type, text: event.message })
@@ -73,17 +87,35 @@ export function useChat(session: Session, onChangeProposed: () => void) {
 
   const waiting = computed(() => stream.isStreaming.value && entries.at(-1)?.role === 'user')
 
-  async function send(text: string) {
-    if (busy.value || !text.trim()) return
-    body.message = text.trim()
+  async function run(endpoint: string, payload: typeof body, text: string) {
+    if (busy.value || !text.trim()) return false
+    submitting.value = true
+    rejected = false
+    url = endpoint
+    body = payload
     userKey = key()
-    entries.push({ key: userKey, role: 'user', text: body.message })
+    entries.push({ key: userKey, role: 'user', text })
     reply = undefined
-    await stream.start()
-    for (const entry of pending.values()) {
-      entry.outcome = { result: 'No tool result was received.', isError: true }
+    try {
+      await stream.start()
+      return !rejected
+    } finally {
+      for (const entry of pending.values()) {
+        entry.outcome = { result: 'No tool result was received.', isError: true }
+      }
+      pending.clear()
+      if (endpoint !== chatUrl && !rejected && !lifetime.signal.aborted) reloadChanges()
+      submitting.value = false
     }
-    pending.clear()
+  }
+
+  function send(text: string) {
+    const message = text.trim()
+    return run(chatUrl, { message }, message)
+  }
+
+  function revise(changeId: ChangeId, comment: Comment) {
+    return run(`/api/changes/${changeId}/comment`, comment, comment.text)
   }
 
   async function stop() {
@@ -108,5 +140,5 @@ export function useChat(session: Session, onChangeProposed: () => void) {
     }
   }
 
-  return { entries, waiting, runActive, busy, stopping, send, stop }
+  return { entries, waiting, runActive, busy, stopping, send, revise, stop }
 }
