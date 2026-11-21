@@ -67,9 +67,15 @@ export function useChat(session: Session, reloadChanges: () => void) {
       }
       case 'tool_result': {
         const entry = pending.get(event.id)
-        if (!entry) break
-        entry.outcome = { result: event.result, isError: event.is_error }
-        pending.delete(event.id)
+        const outcome = { result: event.result, isError: event.is_error }
+        if (entry) {
+          entry.name = event.name
+          entry.outcome = outcome
+          pending.delete(event.id)
+        } else if (event.name === 'find_doc_gaps') {
+          reply = undefined
+          entries.push({ key: key(), role: 'tool', name: event.name, arguments: null, outcome })
+        }
         break
       }
       case 'warning':

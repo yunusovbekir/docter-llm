@@ -3,9 +3,14 @@ import { ref } from 'vue'
 import AppButton from '../common/AppButton.vue'
 import AppField from '../common/AppField.vue'
 
-const props = defineProps<{ busy: boolean; canStop: boolean; stopping: boolean }>()
+const props = defineProps<{
+  busy: boolean
+  canStop: boolean
+  stopping: boolean
+  initialDraft?: string
+}>()
 const emit = defineEmits<{ send: [text: string]; stop: [] }>()
-const draft = ref('')
+const draft = ref(props.initialDraft ?? '')
 
 function send() {
   const text = draft.value.trim()

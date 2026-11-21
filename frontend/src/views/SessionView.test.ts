@@ -207,6 +207,101 @@ async function render() {
   return { wrapper, stream, changes: useChanges(pinia), router }
 }
 
+const gaps = {
+  coverage_percent: 62.5,
+  total_public: 8,
+  documented: 5,
+  items: [
+    { qualname: 'z.parse', kind: 'function', file: 'z.py', line: 12, missing: ['docstring'] },
+    {
+      qualname: 'a.Reader.read',
+      kind: 'method',
+      file: 'a.py',
+      line: 4,
+      missing: ['params', 'returns'],
+    },
+    { qualname: 'b.skip', kind: 'function', file: 'b.py', line: 7, missing: ['params'] },
+  ],
+}
+
+it('replaces a live tool card with a sortable, filterable coverage report', async () => {
+  const { wrapper, stream } = await render()
+  await wrapper.get('textarea').setValue('Find gaps')
+  await wrapper.get('form').trigger('submit')
+  await stream.emit({ type: 'tool_call', id: 'gaps', name: 'find_doc_gaps', arguments: {} })
+  expect(wrapper.get('[role="log"]').text()).toContain('find_doc_gaps')
+  await stream.emit({
+    type: 'tool_result',
+    id: 'gaps',
+    name: 'find_doc_gaps',
+    result: gaps,
+    is_error: false,
+  })
+  const report = wrapper.get('[aria-label="Documentation coverage report"]')
+  expect(wrapper.get('[role="log"]').text()).not.toContain('find_doc_gaps')
+  expect(report.text()).toContain('62.5%')
+  expect(report.get('progress').attributes()).toMatchObject({ value: '62.5', max: '100' })
+  const files = () => report.findAll('tbody tr').map((row) => row.findAll('td')[3]!.text())
+  expect(files()).toEqual(['a.py:4', 'b.py:7', 'z.py:12'])
+  expect(report.text()).toContain('a.Reader.read')
+  expect(report.text()).toContain('method')
+  expect(report.text()).toContain('params, returns')
+  await report.get('th button').trigger('click')
+  expect(files()).toEqual(['z.py:12', 'b.py:7', 'a.py:4'])
+  expect(report.get('th[aria-sort]').attributes('aria-sort')).toBe('descending')
+  await report.get('select').setValue('params')
+  expect(files()).toEqual(['b.py:7', 'a.py:4'])
+  await stream.finish()
+})
+
+it('opens an Add session for selected symbols from a saved report without sending the draft', async () => {
+  const find = {
+    ...message(1, 'assistant', null),
+    tool_calls: [
+      { id: 'saved-gaps', type: 'function', function: { name: 'find_doc_gaps', arguments: '{}' } },
+    ],
+  }
+  const result = { ...message(2, 'tool', JSON.stringify(gaps)), tool_call_id: 'saved-gaps' }
+  const addSession = { ...session, id: 23, mode: 'add', branch_name: null }
+  const post = vi.fn()
+  server.use(
+    http.get('/api/sessions/17', () =>
+      HttpResponse.json({ ...session, mode: 'find_missing', messages: [find, result] }),
+    ),
+    http.post('/api/sessions', async ({ request }) => {
+      post(await request.json())
+      return HttpResponse.json(addSession, { status: 201 })
+    }),
+    http.get('/api/sessions/23', () => HttpResponse.json(addSession)),
+    http.get('/api/sessions/23/changes', () => HttpResponse.json([])),
+  )
+  const { wrapper, router, stream } = await render()
+  const report = wrapper.get('[aria-label="Documentation coverage report"]')
+  const button = report
+    .findAll('button')
+    .find((candidate) => candidate.text() === 'Send to Add mode')!
+  expect(button.attributes('disabled')).toBeDefined()
+  await report.get('input[aria-label^="Select z.parse"]').setValue(true)
+  await report.get('select').setValue('params')
+  await report.get('input[aria-label^="Select a.Reader.read"]').setValue(true)
+  await report.get('select').setValue('')
+  expect(report.get<HTMLInputElement>('input[aria-label^="Select z.parse"]').element.checked).toBe(
+    true,
+  )
+  expect(report.text()).toContain('2 selected')
+  await report.get('select').setValue('params')
+  await button.trigger('click')
+
+  await vi.waitFor(() => {
+    expect(router.currentRoute.value.fullPath).toBe('/sessions/23')
+    expect(wrapper.get('textarea').element.value).toBe(
+      'Add missing documentation for these symbols:\n- z.parse (z.py:12)\n- a.Reader.read (a.py:4)',
+    )
+  })
+  expect(post).toHaveBeenCalledExactlyOnceWith({ project_id: 8, mode: 'add' })
+  expect(stream.post).not.toHaveBeenCalled()
+})
+
 type ChangeSet = components['schemas']['ChangeSetRead']
 type Change = components['schemas']['ChangeRead']
 

@@ -1,10 +1,27 @@
 <script setup lang="ts">
-import { onMounted, onUpdated, useTemplateRef, watch } from 'vue'
+import { computed, onMounted, onUpdated, useTemplateRef, watch } from 'vue'
+import { readCoverageReport, type CoverageData } from '../../composables/coverageReport'
 import type { ChatEntry } from '../../types/chat'
 import AssistantMarkdown from './AssistantMarkdown.vue'
+import CoverageReport from './CoverageReport.vue'
 import ToolCallCard from './ToolCallCard.vue'
 
-const props = defineProps<{ entries: ChatEntry[]; waiting: boolean }>()
+const props = defineProps<{ entries: ChatEntry[]; waiting: boolean; handingOff: boolean }>()
+const emit = defineEmits<{ handoff: [rows: CoverageData['rows']] }>()
+const reports = computed(() => {
+  const result: Record<string, CoverageData> = {}
+  for (const entry of props.entries) {
+    if (
+      entry.role === 'tool' &&
+      entry.name === 'find_doc_gaps' &&
+      entry.outcome?.isError === false
+    ) {
+      const report = readCoverageReport(entry.outcome.result)
+      if (report) result[entry.key] = report
+    }
+  }
+  return result
+})
 const viewport = useTemplateRef('viewport')
 let follow = true
 
@@ -42,7 +59,13 @@ watch(
     </p>
     <ol v-else class="space-y-3">
       <li v-for="message in entries" :key="message.key">
-        <ToolCallCard v-if="message.role === 'tool'" :call="message" />
+        <CoverageReport
+          v-if="reports[message.key]"
+          :report="reports[message.key]"
+          :handing-off="handingOff"
+          @handoff="emit('handoff', $event)"
+        />
+        <ToolCallCard v-else-if="message.role === 'tool'" :call="message" />
         <p
           v-else-if="message.role === 'warning' || message.role === 'error'"
           :role="message.role === 'error' ? 'alert' : 'status'"
