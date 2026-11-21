@@ -91,7 +91,7 @@ and `AppSelect` with `v-model` and provide a visible `label`. Control `AppModal`
 with `:open` and set it to `false` in the `@close` handler. Set the Tailwind
 `dark` class on `<html>` so it also applies to the dialog teleported to `<body>`.
 
-Use `useToast()` for success, error, and info notifications. Up to four toasts
+Use `useToast()` for success, error, info, and warning notifications. Up to four toasts
 stack at once; they dismiss after five seconds, or sooner if dismissed manually
 or replaced by a newer toast. Uncaught Vue errors and unhandled promise rejections
 show the API message for an `ApiError` and a generic message otherwise.
@@ -101,9 +101,12 @@ Vite forwards `/api` to `http://127.0.0.1:8000` by default, or to the port set b
 `DOCTER_PORT`. Run `pnpm preview` from `frontend/` to serve the production build
 locally.
 
-The Docter app opens on Projects and provides sidebar links to History and
-Settings. If you serve `frontend/dist` outside Vite, configure your server to
-serve `index.html` for client-side routes, without rewriting `/api` requests.
+The Docter app opens on Projects. Register a local Git repository using its
+absolute path on the machine running the backend. A dirty working tree does not
+block registration. Removing a project from Docter does not delete repository
+files. The sidebar links to History and Settings. If you serve `frontend/dist`
+outside Vite, configure your server to serve `index.html` for client-side routes,
+without rewriting `/api` requests.
 
 ## Documentation
 

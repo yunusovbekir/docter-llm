@@ -1,7 +1,7 @@
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { http, HttpResponse } from 'msw'
 import { createPinia, disposePinia } from 'pinia'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import App from './App.vue'
@@ -10,6 +10,9 @@ import { useToast } from './stores/toast'
 import { server } from './test/msw'
 
 enableAutoUnmount(afterEach)
+beforeEach(() => {
+  server.use(http.get('/api/projects', () => HttpResponse.json([])))
+})
 
 async function renderAt(path: string) {
   const router = createAppRouter(createMemoryHistory())
@@ -90,18 +93,20 @@ it('stacks and dismisses notifications in the app shell live region', async () =
     toast.success('Project saved.')
     toast.error('The API is unavailable.')
     toast.info('Checking for updates.')
+    toast.warning('The repository has uncommitted changes.')
     await nextTick()
 
     expect(host.findAll('li p').map((item) => item.text())).toEqual([
       'success: Project saved.',
       'error: The API is unavailable.',
       'info: Checking for updates.',
+      'warning: The repository has uncommitted changes.',
     ])
 
     await host
       .get('button[aria-label="Dismiss notification: The API is unavailable."]')
       .trigger('click')
-    expect(host.findAll('li')).toHaveLength(2)
+    expect(host.findAll('li')).toHaveLength(3)
     expect(host.text()).not.toContain('The API is unavailable.')
     vi.advanceTimersByTime(5_000)
     await nextTick()

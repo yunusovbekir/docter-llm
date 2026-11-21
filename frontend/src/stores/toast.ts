@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { onScopeDispose, ref } from 'vue'
 
-type ToastKind = 'success' | 'error' | 'info'
+type ToastKind = 'success' | 'error' | 'info' | 'warning'
 type Toast = { id: number; kind: ToastKind; message: string }
 
 const MAX_TOASTS = 4
@@ -41,5 +41,6 @@ export const useToast = defineStore('toast', () => {
     success: (message: string) => show('success', message),
     error: (message: string) => show('error', message),
     info: (message: string) => show('info', message),
+    warning: (message: string) => show('warning', message),
   }
 })
