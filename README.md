@@ -106,9 +106,11 @@ absolute path on the machine running the backend. A dirty working tree does not
 block registration. Removing a project from Docter does not delete repository
 files. Open a project and select Index or Re-index to build its code index. The
 project page shows live progress, the last successful indexing time, and any
-failure details. The sidebar links to History and Settings. If you serve `frontend/dist`
-outside Vite, configure your server to serve `index.html` for client-side routes,
-without rewriting `/api` requests.
+failure details. Once indexing is complete, start an Add, Fix, Find Missing, or
+Translate session from the project page. Translate requires a target language
+tag such as `de` or `pt-BR`. The sidebar links to History and Settings. If you
+serve `frontend/dist` outside Vite, configure your server to serve `index.html`
+for client-side routes, without rewriting `/api` requests.
 
 ## Documentation
 

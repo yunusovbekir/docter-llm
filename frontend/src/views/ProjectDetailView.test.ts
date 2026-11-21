@@ -87,6 +87,7 @@ it('shows project details, starts indexing, and polls every second until done', 
   expect(wrapper.text()).toContain(project.path)
   expect(wrapper.text()).toContain(project.current_branch)
   expect(wrapper.text()).toContain('Never')
+  expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
   expect(wrapper.get('button').text()).toBe('Index')
 
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -109,6 +110,7 @@ it('shows project details, starts indexing, and polls every second until done', 
   expect(wrapper.get('time').attributes('datetime')).toBe(indexedAt)
   expect(wrapper.get('button').text()).toBe('Re-index')
   expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+  expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   await tick(3_000)
   expect(read).toHaveBeenCalledTimes(3)
 })
@@ -215,7 +217,98 @@ it('shows an error when the status check fails and lets the user retry', async (
   const { wrapper } = await render()
   await vi.waitFor(() => expect(wrapper.get('[role="alert"]').text()).toBe('Status unavailable'))
   expect(useToast(pinia).toasts).toMatchObject([{ kind: 'error', message: 'Status unavailable' }])
-  await wrapper.findAll('button')[1]!.trigger('click')
+  await wrapper.get('[aria-label="Indexing"] [role="alert"] + button').trigger('click')
   await vi.waitFor(() => expect(wrapper.get('[role="status"]').text()).toBe('Not indexed'))
   expect(wrapper.find('[role="alert"]').exists()).toBe(false)
 })
+
+function mockSessionCreate() {
+  const create = vi.fn()
+  server.use(
+    http.post('/api/sessions', async ({ request }) => {
+      const body = await request.json()
+      create(body)
+      return HttpResponse.json({ id: 17 }, { status: 201 })
+    }),
+  )
+  return create
+}
+
+it('offers four modes and redirects to the session created for the selected mode', async () => {
+  mockStatus({ status: 'done', progress: 100, indexed_at: indexedAt })
+  const create = mockSessionCreate()
+  const { router, wrapper } = await render()
+  await vi.waitFor(() =>
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined(),
+  )
+  const modes = wrapper.findAll<HTMLInputElement>('input[type="radio"]')
+  expect(modes.map((mode) => mode.element.value)).toEqual([
+    'add',
+    'fix',
+    'find_missing',
+    'translate',
+  ])
+  expect(modes[0]?.element.checked).toBe(true)
+  await wrapper.get('input[value="find_missing"]').setValue()
+  expect(modes[0]?.element.checked).toBe(false)
+  expect(wrapper.find('input[name="target-language"]').exists()).toBe(false)
+  await wrapper.get('form').trigger('submit')
+
+  await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/sessions/17'))
+  expect(create).toHaveBeenCalledExactlyOnceWith({ project_id: 8, mode: 'find_missing' })
+})
+
+it('requires a valid target language for Translate and submits the trimmed tag', async () => {
+  mockStatus({ status: 'done', progress: 100 })
+  const create = mockSessionCreate()
+  const { wrapper } = await render()
+  await vi.waitFor(() =>
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined(),
+  )
+  await wrapper.get('input[value="translate"]').setValue()
+  const input = wrapper.get('input[name="target-language"]')
+  expect(input.attributes('required')).toBeDefined()
+
+  await input.setValue('  ')
+  await wrapper.get('form').trigger('submit')
+  expect(input.attributes('aria-invalid')).toBe('true')
+  expect(wrapper.text()).toContain('Enter a target language.')
+
+  await input.setValue('Japanese')
+  await wrapper.get('form').trigger('submit')
+  expect(wrapper.text()).toContain('Enter a language tag such as de or pt-BR.')
+  expect(create).not.toHaveBeenCalled()
+
+  await input.setValue(' pt-BR ')
+  await wrapper.get('form').trigger('submit')
+  await vi.waitFor(() =>
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      project_id: 8,
+      mode: 'translate',
+      mode_params: { target_language: 'pt-BR' },
+    }),
+  )
+})
+
+it.each(['idle', 'running', 'failed'] as const)(
+  'blocks session creation and explains why when indexing is %s',
+  async (status) => {
+    const read = mockStatus({ status, progress: 0 })
+    const create = mockSessionCreate()
+    const { wrapper } = await render()
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+    await flushPromises()
+
+    const button = wrapper.get('button[type="submit"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    const tooltip = wrapper.get('[role="tooltip"]')
+    expect(tooltip.text()).toBe('Indexing must finish before you can start a session.')
+    expect(
+      wrapper.get(`[aria-describedby="${tooltip.attributes('id')}"]`).attributes('tabindex'),
+    ).toBe('0')
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(create).not.toHaveBeenCalled()
+  },
+)
