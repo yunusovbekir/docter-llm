@@ -129,10 +129,13 @@ it('preserves a normalized HTTP error from the API', async () => {
     ),
   )
   const { stream, events } = mountStream()
+  const listener = vi.fn()
+  stream.onEvent(listener)
   await stream.start()
   expect(events).toEqual([
     { type: 'error', code: 'session_busy', message: 'This session is already running.' },
   ])
+  expect(listener).toHaveBeenCalledExactlyOnceWith(events[0], 409)
 })
 
 it.each([

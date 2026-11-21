@@ -1,4 +1,4 @@
-import { enableAutoUnmount, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { http, HttpResponse } from 'msw'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -55,7 +55,8 @@ function mockHistory(...messages: components['schemas']['MessageRead'][]) {
 
 function mockStream() {
   const post = vi.fn()
-  let listener: ((event: StreamEvent) => void) | undefined
+  const abort = vi.fn(() => finish?.())
+  let listener: ((event: StreamEvent, httpStatus?: number) => void) | undefined
   let finish: (() => void) | undefined
   vi.mocked(useEventStream).mockImplementation((url, body) => {
     const isStreaming = ref(false)
@@ -69,7 +70,7 @@ function mockStream() {
         })
         isStreaming.value = false
       },
-      abort: () => finish?.(),
+      abort,
       onEvent: (handler) => {
         listener = handler
         return () => {
@@ -80,8 +81,9 @@ function mockStream() {
   })
   return {
     post,
-    emit: async (event: StreamEvent) => {
-      listener?.(event)
+    abort,
+    emit: async (event: StreamEvent, httpStatus?: number) => {
+      listener?.(event, httpStatus)
       await nextTick()
     },
     finish: async () => {
@@ -96,6 +98,63 @@ enableAutoUnmount(afterEach)
 beforeEach(() => {
   server.use(http.get('/api/projects/8', () => HttpResponse.json(project)))
   mockHistory()
+})
+
+it('cancels the active run, then aborts the stream and unlocks the composer', async () => {
+  const cancel = vi.fn()
+  let confirmCancel!: () => void
+  const confirmation = new Promise<void>((resolve) => {
+    confirmCancel = resolve
+  })
+  server.use(
+    http.post('/api/sessions/17/cancel', async () => {
+      cancel()
+      await confirmation
+      return new HttpResponse(null, { status: 204 })
+    }),
+  )
+  const { wrapper, stream } = await render()
+  const input = wrapper.get('textarea')
+  await input.setValue('Review the docs')
+  await wrapper.get('form').trigger('submit')
+  expect(input.attributes('disabled')).toBeDefined()
+  const stop = wrapper.get('button[type="button"]')
+  expect(stop.text()).toBe('Stop')
+  await stop.trigger('click')
+  await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1))
+  expect(stop.attributes('disabled')).toBeDefined()
+  expect(input.attributes('disabled')).toBeDefined()
+  expect(stream.abort).not.toHaveBeenCalled()
+  confirmCancel()
+  await vi.waitFor(() => expect(input.attributes('disabled')).toBeUndefined())
+  expect(stream.abort).toHaveBeenCalledTimes(1)
+  expect(wrapper.find('button[type="button"]').exists()).toBe(false)
+})
+
+it('blocks sends for a session that is already running on load', async () => {
+  server.use(
+    http.get('/api/sessions/17', () => HttpResponse.json({ ...session, run_status: 'running' })),
+  )
+  const { wrapper, stream } = await render()
+  expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+  await wrapper.get('form').trigger('submit')
+  expect(stream.post).not.toHaveBeenCalled()
+})
+
+it('shows the conflict message on an HTTP 409 and removes the rejected optimistic message', async () => {
+  const { wrapper, stream } = await render()
+  const input = wrapper.get('textarea')
+  await input.setValue('Review the docs')
+  await wrapper.get('form').trigger('submit')
+  const log = wrapper.get('[role="log"]')
+  expect(log.text()).toContain('Review the docs')
+  await stream.emit({ type: 'error', code: 'http_error', message: 'Conflict' }, 409)
+  await stream.finish()
+  await flushPromises()
+  expect(log.get('[role="alert"]').text()).toBe('Error: A run is already in progress')
+  expect(log.text()).not.toContain('Review the docs')
+  expect(input.attributes('disabled')).toBeDefined()
 })
 
 async function render() {

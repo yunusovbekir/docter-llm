@@ -116,6 +116,7 @@ failure details. Once indexing is complete, start an Add, Fix, Find Missing, or
 Translate session from the project page. Translate requires a target language
 tag such as `de` or `pt-BR`. Open a session to see its conversation history and
 stream new assistant replies. Press Enter to send or Shift+Enter for a new line.
+While a run is active, the message input is disabled. Select Stop to cancel it.
 Expand a tool-call card to inspect its arguments and result. Warnings and errors
 appear inline in the conversation.
 The sidebar links to History and Settings. If you serve `frontend/dist` outside

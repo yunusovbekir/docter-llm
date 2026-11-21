@@ -84,7 +84,7 @@ function parseEvent({ event, data }: EventSourceMessage): StreamEvent | undefine
   throw invalid
 }
 
-type Listener = (event: StreamEvent) => void
+type Listener = (event: StreamEvent, httpStatus?: number) => void
 
 export function useEventStream(url: string, body: unknown) {
   const isStreaming = ref(false)
@@ -112,10 +112,10 @@ export function useEventStream(url: string, body: unknown) {
     listeners.clear()
   })
 
-  function emit(request: AbortController, event: StreamEvent) {
+  function emit(request: AbortController, event: StreamEvent, httpStatus?: number) {
     for (const listener of listeners) {
       if (active !== request) break
-      listener(event)
+      listener(event, httpStatus)
     }
   }
 
@@ -185,7 +185,7 @@ export function useEventStream(url: string, body: unknown) {
           cause instanceof ApiError
             ? { type: 'error', code: cause.code, message: cause.message }
             : { type: 'error', code: 'network_error', message: 'Could not read the event stream.' }
-        emit(request, error)
+        emit(request, error, cause instanceof ApiError ? cause.status : undefined)
       }
     } finally {
       if (active === request) {
