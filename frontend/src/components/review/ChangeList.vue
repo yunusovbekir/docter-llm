@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
-import type { components } from '../../api/schema'
 import { canReview } from '../../composables/useReviewActions'
 import { useChanges } from '../../stores/changes'
-import AppBadge from '../common/AppBadge.vue'
 import AppButton from '../common/AppButton.vue'
 import AppModal from '../common/AppModal.vue'
 import AppSpinner from '../common/AppSpinner.vue'
+import ChangeStatusBadge from './ChangeStatusBadge.vue'
 
 const props = defineProps<{ reviewBusy: boolean; approvingAll: boolean }>()
 const emit = defineEmits<{ retry: []; approveAll: [] }>()
@@ -27,15 +26,6 @@ function confirmApproveAll() {
   confirming.value = false
   emit('approveAll')
 }
-const statuses = {
-  pending: { label: 'Pending', tone: 'warning' },
-  approved: { label: 'Approved', tone: 'success' },
-  applied: { label: 'Applied', tone: 'success' },
-  denied: { label: 'Denied', tone: 'neutral' },
-  partial: { label: 'Partial', tone: 'warning' },
-  conflict: { label: 'Conflict', tone: 'danger' },
-  revised: { label: 'Revised', tone: 'info' },
-} as const satisfies Record<components['schemas']['ChangeStatus'], { label: string; tone: string }>
 </script>
 
 <template>
@@ -91,9 +81,7 @@ const statuses = {
             >
               <span class="block break-all font-mono">{{ change.file_path }}</span>
               <span class="flex flex-wrap items-center gap-2">
-                <AppBadge :tone="statuses[change.status].tone">{{
-                  statuses[change.status].label
-                }}</AppBadge>
+                <ChangeStatusBadge :status="change.status" />
                 <span class="text-xs text-slate-600 dark:text-slate-400">
                   {{ change.hunks.length }} {{ change.hunks.length === 1 ? 'hunk' : 'hunks' }}
                 </span>

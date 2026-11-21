@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { VueMonacoDiffEditor } from '@guolao/vue-monaco-editor'
+import type { editor } from 'monaco-editor'
 import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import type { components } from '../../api/schema'
 import { useToast } from '../../stores/toast'
@@ -14,6 +15,29 @@ const preferenceKey = 'docter.diff-layout'
 const layout = ref<'side-by-side' | 'inline'>('side-by-side')
 const root = globalThis.document.documentElement
 const dark = ref(root.classList.contains('dark'))
+let diffEditor: editor.IStandaloneDiffEditor | undefined
+let queuedLine: number | undefined
+
+function scrollToLine(line: number) {
+  const modified = diffEditor?.getModifiedEditor()
+  const model = modified?.getModel()
+  if (!modified || !model) {
+    queuedLine = line
+    return
+  }
+  modified.revealLineInCenter(Math.min(line, model.getLineCount()))
+}
+
+function mountEditor(instance: editor.IStandaloneDiffEditor) {
+  diffEditor = instance
+  if (queuedLine !== undefined) {
+    const line = queuedLine
+    queuedLine = undefined
+    scrollToLine(line)
+  }
+}
+
+defineExpose({ scrollToLine })
 const observer = new globalThis.MutationObserver(() => {
   dark.value = root.classList.contains('dark')
 })
@@ -76,6 +100,7 @@ const options = computed(() => ({
         :language="language"
         :theme="dark ? 'vs-dark' : 'vs'"
         :options="options"
+        @mount="mountEditor"
       >
         <template #loading><AppSpinner label="Loading diff editor" /></template>
       </VueMonacoDiffEditor>

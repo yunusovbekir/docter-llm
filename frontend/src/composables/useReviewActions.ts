@@ -33,11 +33,20 @@ export function useReviewActions(sessionId: Readonly<Ref<SessionId | undefined>>
   watch(sessionId, reset)
   onScopeDispose(reset)
 
-  async function review(action: ReviewAction) {
+  async function review(action: ReviewAction, hunks?: number[]) {
     const id = sessionId.value
     const change = changes.selectedChange
     if (pending.value || changes.loading || id === undefined || session.session?.id !== id) return
     if (action !== 'approve-all' && (!change || !canReview(change))) return
+    if (
+      hunks &&
+      (!hunks.length ||
+        hunks.some(
+          (index) =>
+            !change?.hunks.some((hunk) => hunk.index === index && hunk.status === 'pending'),
+        ))
+    )
+      return
     if (action === 'approve-all' && !changes.changeSets.some((set) => set.changes.some(canReview)))
       return
 
@@ -56,7 +65,13 @@ export function useReviewActions(sessionId: Readonly<Ref<SessionId | undefined>>
       } else if (change) {
         const path =
           action === 'approve' ? '/changes/{change_id}/approve' : '/changes/{change_id}/deny'
-        await unwrap(api.POST(path, { params: { path: { change_id: change.id } }, signal }))
+        await unwrap(
+          api.POST(path, {
+            params: { path: { change_id: change.id } },
+            ...(hunks && { body: { hunks } }),
+            signal,
+          }),
+        )
       }
     } catch (cause) {
       if (!signal.aborted) {
