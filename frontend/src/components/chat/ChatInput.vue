@@ -3,8 +3,8 @@ import { ref } from 'vue'
 import AppButton from '../common/AppButton.vue'
 import AppField from '../common/AppField.vue'
 
-const props = defineProps<{ busy: boolean }>()
-const emit = defineEmits<{ send: [text: string] }>()
+const props = defineProps<{ busy: boolean; canStop: boolean; stopping: boolean }>()
+const emit = defineEmits<{ send: [text: string]; stop: [] }>()
 const draft = ref('')
 
 function send() {
@@ -28,8 +28,19 @@ function onEnter(event: globalThis.KeyboardEvent) {
       label="Message"
       hint="Enter to send. Shift+Enter for a new line."
     >
-      <textarea v-bind="controlAttrs" v-model="draft" rows="3" @keydown.enter="onEnter" />
+      <textarea
+        v-bind="controlAttrs"
+        v-model="draft"
+        :disabled="busy"
+        rows="3"
+        @keydown.enter="onEnter"
+      />
     </AppField>
-    <AppButton type="submit" :disabled="!draft.trim()" :loading="busy">Send</AppButton>
+    <div class="flex gap-2">
+      <AppButton type="submit" :disabled="busy || !draft.trim()">Send</AppButton>
+      <AppButton v-if="canStop" variant="secondary" :loading="stopping" @click="emit('stop')">
+        Stop
+      </AppButton>
+    </div>
   </form>
 </template>
