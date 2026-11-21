@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { createPinia, disposePinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { components } from '../api/schema'
+import AppSpinner from '../components/common/AppSpinner.vue'
 import { useToast } from '../stores/toast'
 import { server } from '../test/msw'
 import SettingsView from './SettingsView.vue'
@@ -33,6 +34,14 @@ async function loadedView() {
   const wrapper = render()
   await vi.waitFor(() => expect(wrapper.find('form').exists()).toBe(true))
   return wrapper
+}
+
+function testButton(wrapper: ReturnType<typeof render>) {
+  const button = wrapper
+    .findAll<HTMLButtonElement>('button')
+    .find((button) => button.text() === 'Test connection')
+  if (!button) throw new Error('Test connection button not found')
+  return button
 }
 
 it('loads settings, shows the saved-key badge, and leaves the password input empty', async () => {
@@ -231,4 +240,98 @@ it('reports a failed save without resetting the form', async () => {
   )
   expect(model.element.value).toBe('gpt-4.1-mini')
   expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(false)
+})
+
+it('shows a spinner while testing saved settings and reports latency inline', async () => {
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const post = vi.fn()
+  server.use(
+    http.post('/api/settings/test', async ({ request }) => {
+      post(await request.text())
+      await pending
+      return HttpResponse.json({ ok: true, latency_ms: 0, error: null })
+    }),
+  )
+  const wrapper = await loadedView()
+  const button = testButton(wrapper)
+  expect(button.element.disabled).toBe(false)
+
+  await button.trigger('click')
+  try {
+    expect(button.attributes('aria-busy')).toBe('true')
+    expect(button.element.disabled).toBe(true)
+    expect(wrapper.findComponent(AppSpinner).exists()).toBe(true)
+    expect(wrapper.get('[role="status"]').text()).toBe('Testing connection')
+    await button.trigger('click')
+  } finally {
+    release()
+  }
+
+  await vi.waitFor(() =>
+    expect(wrapper.get('[role="status"]').text()).toBe('Connection successful (0 ms).'),
+  )
+  expect(post).toHaveBeenCalledExactlyOnceWith('')
+  expect(button.element.disabled).toBe(false)
+  expect(wrapper.findComponent(AppSpinner).exists()).toBe(false)
+})
+
+it.each([
+  {
+    kind: 'provider',
+    body: { ok: false, latency_ms: null, error: 'Invalid API key.' },
+    status: 200,
+    message: 'Invalid API key.',
+  },
+  {
+    kind: 'HTTP',
+    body: { error: { code: 'unavailable', message: 'Settings API unavailable.' } },
+    status: 503,
+    message: 'Settings API unavailable.',
+  },
+])('shows a $kind failure inline and in a toast', async ({ body, status, message }) => {
+  server.use(http.post('/api/settings/test', () => HttpResponse.json(body, { status })))
+  const wrapper = await loadedView()
+  const button = testButton(wrapper)
+  await button.trigger('click')
+
+  await vi.waitFor(() => expect(wrapper.get('[role="status"]').text()).toBe(message))
+  expect(useToast(pinia).toasts).toMatchObject([{ kind: 'error', message }])
+  expect(button.element.disabled).toBe(false)
+})
+
+it('cannot test a non-Ollama provider without a saved key, even with a draft key', async () => {
+  const post = vi.fn(() => HttpResponse.json({ ok: true, latency_ms: 42, error: null }))
+  server.use(
+    http.get('/api/settings', () => HttpResponse.json({ ...settings, has_api_key: false })),
+    http.post('/api/settings/test', post),
+  )
+  const wrapper = await loadedView()
+  const button = testButton(wrapper)
+  expect(button.element.disabled).toBe(true)
+  await wrapper.get('input[type="password"]').setValue('unsaved-key')
+  expect(button.element.disabled).toBe(true)
+  await button.trigger('click')
+  expect(post).not.toHaveBeenCalled()
+})
+
+it('can test a saved Ollama configuration without a key', async () => {
+  server.use(
+    http.get('/api/settings', () =>
+      HttpResponse.json({ ...settings, provider: 'ollama', has_api_key: false }),
+    ),
+    http.post('/api/settings/test', () =>
+      HttpResponse.json({ ok: true, latency_ms: 42, error: null }),
+    ),
+  )
+  const wrapper = await loadedView()
+  await wrapper.get('select[name="provider"]').setValue('openai')
+  const button = testButton(wrapper)
+  expect(button.element.disabled).toBe(false)
+  await button.trigger('click')
+  await vi.waitFor(() =>
+    expect(wrapper.get('[role="status"]').text()).toBe('Connection successful (42 ms).'),
+  )
 })

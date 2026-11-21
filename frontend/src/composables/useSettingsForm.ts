@@ -121,6 +121,7 @@ export function useSettingsForm() {
     () =>
       !store.loading &&
       !store.saving &&
+      !store.testing &&
       Object.keys(payload.value).length > 0 &&
       Object.values(errors.value).every((error) => !error),
   )

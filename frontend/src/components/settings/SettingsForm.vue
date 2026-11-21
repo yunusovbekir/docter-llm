@@ -88,9 +88,41 @@ const { draft, errors, hasKey, removeKey, canSave, toggleKeyRemoval, save } = us
             {{ removeKey ? 'Undo removal' : 'Remove key' }}
           </AppButton>
         </div>
-        <AppButton type="submit" :disabled="!canSave" :loading="store.saving">
-          {{ store.saving ? 'Saving settings' : 'Save' }}
-        </AppButton>
+        <div class="flex flex-wrap gap-2">
+          <AppButton type="submit" :disabled="!canSave" :loading="store.saving">
+            {{ store.saving ? 'Saving settings' : 'Save' }}
+          </AppButton>
+          <AppButton
+            variant="secondary"
+            :disabled="!store.canTest"
+            :loading="store.testing"
+            aria-describedby="connection-test-hint"
+            @click="store.testConnection()"
+          >
+            Test connection
+          </AppButton>
+        </div>
+        <div class="text-sm">
+          <p id="connection-test-hint" class="text-slate-600 dark:text-slate-300">
+            Uses saved settings. An API key must be saved unless the provider is Ollama.
+          </p>
+          <div role="status">
+            <p v-if="store.testing" class="sr-only">Testing connection</p>
+            <p
+              v-else-if="store.connectionTest?.status === 'success'"
+              class="mt-1 text-green-700 dark:text-green-400"
+            >
+              {{
+                store.connectionTest.latencyMs === null
+                  ? 'Connection successful.'
+                  : `Connection successful (${store.connectionTest.latencyMs} ms).`
+              }}
+            </p>
+            <p v-else-if="store.connectionTest" class="mt-1 text-red-700 dark:text-red-400">
+              {{ store.connectionTest.message }}
+            </p>
+          </div>
+        </div>
       </fieldset>
     </form>
   </AppCard>
