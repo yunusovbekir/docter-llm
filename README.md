@@ -34,7 +34,8 @@ such as Ollama, it still needs to be running.
 Set your LLM provider and API key under **Settings**, and add a project.
 Choose **Other** to enter a LiteLLM provider ID not listed in the menu. Leave
 the API key field blank to keep the provider's saved key, or choose **Remove key**
-and then **Save** to delete it.
+and then **Save** to delete it. Select **Test connection** to check the saved
+configuration and see the latency or error. Ollama can be tested without a saved key.
 
 ## Backend development
 
