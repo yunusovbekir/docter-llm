@@ -120,7 +120,8 @@ While a run is active, the message input is disabled. Select Stop to cancel it.
 Expand a tool-call card to inspect its arguments and result. Warnings and errors
 appear inline in the conversation.
 The Changes panel lists proposed files by change set, newest first, and refreshes
-as new proposals arrive. Select a file to highlight it in the list.
+as new proposals arrive. Select a file to open its read-only diff. Switch between
+side-by-side and inline layouts; the browser remembers your preference.
 The sidebar links to History and Settings. If you serve `frontend/dist` outside
 Vite, configure your server to serve `index.html` for client-side routes, without
 rewriting `/api` requests.

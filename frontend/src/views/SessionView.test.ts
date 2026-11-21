@@ -2,7 +2,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { http, HttpResponse } from 'msw'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { nextTick, ref } from 'vue'
+import { defineComponent, h, nextTick, ref } from 'vue'
 import { createMemoryHistory, RouterView } from 'vue-router'
 import type { components } from '../api/schema'
 import { useEventStream } from '../composables/useEventStream'
@@ -12,6 +12,24 @@ import { server } from '../test/msw'
 import type { StreamEvent } from '../types/events'
 
 vi.mock('../composables/useEventStream', () => ({ useEventStream: vi.fn() }))
+vi.mock('@guolao/vue-monaco-editor', () => ({
+  loader: { config: vi.fn() },
+  VueMonacoDiffEditor: defineComponent({
+    props: {
+      original: { type: String, required: true },
+      modified: { type: String, required: true },
+      language: { type: String, required: true },
+      theme: { type: String, required: true },
+      options: { type: Object, required: true },
+    },
+    setup: (props) => () => h('div', { 'data-monaco': JSON.stringify(props) }),
+  }),
+}))
+vi.mock('monaco-editor', () => ({
+  languages: {
+    getLanguages: () => [{ id: 'markdown', extensions: ['.md'] }],
+  },
+}))
 
 const project = {
   id: 8,
@@ -100,6 +118,11 @@ beforeEach(() => {
   server.use(http.get('/api/projects/8', () => HttpResponse.json(project)))
   server.use(http.get('/api/sessions/17/changes', () => HttpResponse.json([])))
   mockHistory()
+})
+
+afterEach(() => {
+  localStorage.removeItem('docter.diff-layout')
+  document.documentElement.classList.remove('dark')
 })
 
 it('cancels the active run, then aborts the stream and unlocks the composer', async () => {
@@ -240,6 +263,53 @@ it('groups files newest first and shows each status and hunk count', async () =>
 
   await router.push('/history')
   expect(changes.selectedChangeId).toBeNull()
+})
+
+it('shows an empty diff until selection, then passes snapshots and remembers the layout', async () => {
+  const set = changeSet(1, '01', 'pending', 'applied')
+  Object.assign(set.changes[0]!, {
+    original_content: '# Before\n',
+    proposed_content: '# After\n',
+    file_path: 'docs/README.MD',
+  })
+  set.changes[1]!.file_path = 'docs/unknown.ext'
+  server.use(http.get('/api/sessions/17/changes', () => HttpResponse.json([set])))
+  const { wrapper } = await render()
+  expect(wrapper.get('h2 + p').text()).toBe('Select a file in Changes to see its diff.')
+  expect(wrapper.text()).toContain('No change selected')
+  expect(wrapper.find('[data-monaco]').exists()).toBe(false)
+  const panel = wrapper.get('aside')
+  await vi.waitFor(() => expect(panel.findAll('button')).toHaveLength(2))
+  const [first, second] = panel.findAll('button')
+  await first!.trigger('click')
+  await vi.waitFor(() => expect(wrapper.find('[data-monaco]').exists()).toBe(true))
+
+  function editorProps() {
+    const value = wrapper.get('[data-monaco]').attributes('data-monaco')
+    if (value === undefined) throw new Error('Missing mocked Monaco props')
+    return JSON.parse(value)
+  }
+  expect(editorProps()).toMatchObject({
+    original: '# Before\n',
+    modified: '# After\n',
+    language: 'markdown',
+    theme: 'vs',
+    options: { readOnly: true, originalEditable: false, renderSideBySide: true },
+  })
+  await wrapper.get('select').setValue('inline')
+  expect(editorProps()).toMatchObject({ options: { renderSideBySide: false } })
+  expect(localStorage.getItem('docter.diff-layout')).toBe('inline')
+
+  document.documentElement.classList.add('dark')
+  await vi.waitFor(() => expect(editorProps()).toMatchObject({ theme: 'vs-dark' }))
+  await second!.trigger('click')
+  await vi.waitFor(() =>
+    expect(editorProps()).toMatchObject({
+      language: 'plaintext',
+      options: { renderSideBySide: false },
+    }),
+  )
+  expect(wrapper.get('select').element.value).toBe('inline')
 })
 
 it('reloads on a proposed change without dropping the current selection', async () => {
