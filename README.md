@@ -130,6 +130,10 @@ Select a hunk header to jump to it in the diff.
 Leave a review comment on the whole change or a specific hunk to request a
 revision. The run streams into chat, and version links let you compare the new
 proposal with its predecessor.
+Find Missing results show documentation coverage and a list of gaps you can filter
+by missing type or sort by file. Select symbols and choose **Send to Add mode** to
+open an Add session for the same project with an editable draft. Nothing is sent
+until you submit the draft.
 The sidebar links to History and Settings. If you serve `frontend/dist` outside
 Vite, configure your server to serve `index.html` for client-side routes, without
 rewriting `/api` requests.

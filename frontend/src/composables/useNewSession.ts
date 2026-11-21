@@ -1,7 +1,8 @@
 import { onScopeDispose, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { api, ApiError, unwrap } from '../api/client'
+import { ApiError } from '../api/client'
 import type { components } from '../api/schema'
+import { createSession } from '../api/sessions'
 import { useToast } from '../stores/toast'
 
 type SessionCreate = components['schemas']['SessionCreate']
@@ -41,8 +42,7 @@ export function useNewSession(projectId: SessionCreate['project_id'], canStart: 
 
     submitting.value = true
     try {
-      const session = await unwrap(api.POST('/sessions', { body, signal }))
-      if (!session) throw new ApiError('invalid_response', 'The API returned no session.', 0)
+      const session = await createSession(body, signal)
       if (!signal.aborted) await router.push(`/sessions/${session.id}`)
     } catch (cause) {
       if (!signal.aborted) {

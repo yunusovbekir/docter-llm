@@ -12,6 +12,7 @@ export const useSession = defineStore('session', () => {
   const project = ref<Project>()
   const loading = ref(false)
   const error = ref('')
+  const handoffDraft = ref<{ id: SessionDetail['id']; text: string }>()
   const toast = useToast()
   let active: AbortController | undefined
 
@@ -73,11 +74,20 @@ export const useSession = defineStore('session', () => {
     }
   }
 
+  function takeHandoffDraft(id: SessionDetail['id']) {
+    if (handoffDraft.value?.id !== id) return ''
+    const { text } = handoffDraft.value
+    handoffDraft.value = undefined
+    return text
+  }
+
   return {
     session,
     project,
     loading,
     error,
+    handoffDraft,
+    takeHandoffDraft,
     clear,
     load: (id: SessionDetail['id']) => read(id, false),
     refresh: (id: SessionDetail['id']) => read(id, true),
