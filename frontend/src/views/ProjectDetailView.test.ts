@@ -230,6 +230,19 @@ function mockSessionCreate() {
       create(body)
       return HttpResponse.json({ id: 17 }, { status: 201 })
     }),
+    http.get('/api/sessions/17', () =>
+      HttpResponse.json({
+        id: 17,
+        project_id: project.id,
+        mode: 'find_missing',
+        mode_params: {},
+        branch_name: null,
+        run_status: 'idle',
+        created_at: project.created_at,
+        updated_at: project.created_at,
+        messages: [],
+      } satisfies components['schemas']['SessionDetail']),
+    ),
   )
   return create
 }
