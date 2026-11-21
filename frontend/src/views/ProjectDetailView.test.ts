@@ -243,6 +243,7 @@ function mockSessionCreate() {
         messages: [],
       } satisfies components['schemas']['SessionDetail']),
     ),
+    http.get('/api/sessions/17/changes', () => HttpResponse.json([])),
   )
   return create
 }

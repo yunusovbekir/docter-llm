@@ -7,10 +7,13 @@ import AppBadge from '../components/common/AppBadge.vue'
 import AppButton from '../components/common/AppButton.vue'
 import AppEmptyState from '../components/common/AppEmptyState.vue'
 import AppSpinner from '../components/common/AppSpinner.vue'
+import ChangeList from '../components/review/ChangeList.vue'
+import { useChanges } from '../stores/changes'
 import { useSession } from '../stores/session'
 
 const props = defineProps<{ id: string }>()
 const store = useSession()
+const changes = useChanges()
 const id = computed(() => {
   const value = Number(props.id)
   return /^\d+$/.test(props.id) && Number.isSafeInteger(value) && value > 0 ? value : undefined
@@ -29,6 +32,20 @@ function load() {
 
 watch(id, load, { immediate: true })
 onScopeDispose(store.clear)
+
+function reloadChanges(sessionId = id.value) {
+  if (sessionId !== undefined && sessionId === id.value) void changes.load(sessionId)
+}
+
+watch(
+  () => store.session?.id,
+  (sessionId) => {
+    if (sessionId === undefined) changes.clear()
+    else reloadChanges(sessionId)
+  },
+  { immediate: true },
+)
+onScopeDispose(changes.clear)
 </script>
 
 <template>
@@ -61,7 +78,18 @@ onScopeDispose(store.clear)
         <AppButton variant="secondary" @click="load">Retry</AppButton>
       </template>
     </AppEmptyState>
-    <ChatPanel v-else-if="store.session" :key="store.session.id" :session="store.session" />
+    <div
+      v-else-if="store.session"
+      class="grid items-start gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
+    >
+      <ChatPanel
+        :key="store.session.id"
+        :session="store.session"
+        class="min-w-0"
+        @change-proposed="reloadChanges"
+      />
+      <ChangeList @retry="reloadChanges()" />
+    </div>
     <AppEmptyState v-else title="Session not found" />
   </section>
 </template>
