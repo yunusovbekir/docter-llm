@@ -7,6 +7,7 @@ const tones = {
   success: 'border-green-600 dark:border-green-400',
   error: 'border-red-600 dark:border-red-400',
   info: 'border-blue-600 dark:border-blue-400',
+  warning: 'border-amber-600 dark:border-amber-400',
 }
 </script>
 
