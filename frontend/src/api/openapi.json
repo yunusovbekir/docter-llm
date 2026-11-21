@@ -2197,17 +2197,24 @@
     },
     "/api/sessions": {
       "get": {
-        "description": "List project sessions with pending, applied, and denied proposal counts.",
+        "description": "List sessions with proposal counts, optionally filtered by project.",
         "operationId": "list_sessions_api_sessions_get",
         "parameters": [
           {
             "in": "query",
             "name": "project_id",
-            "required": true,
+            "required": false,
             "schema": {
-              "exclusiveMinimum": 0,
-              "title": "Project Id",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
             }
           }
         ],

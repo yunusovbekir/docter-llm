@@ -132,25 +132,23 @@ class SessionService:
                 messages=[MessageRead.model_validate(message) for message in messages],
             )
 
-    async def list_all(self, project_id: int) -> list[SessionSummary]:
-        """List a project's sessions oldest first, counting proposals, not hunks."""
+    async def list_all(self, project_id: int | None = None) -> list[SessionSummary]:
+        """List sessions oldest first, counting proposals, not hunks."""
         async with self._sessions() as db:
-            await self._get_project(db, project_id)
-            rows = (
-                await db.exec(
-                    select(Session)
-                    .where(Session.project_id == project_id)
-                    .order_by(col(Session.created_at), col(Session.id))
-                )
-            ).all()
-            counts: dict[int, ChangeCounts] = {}
-            totals = await db.exec(
+            sessions = select(Session).order_by(col(Session.created_at), col(Session.id))
+            totals_query = (
                 select(ChangeSet.session_id, Change.status, func.count(col(Change.id)))
                 .join(Change, col(Change.change_set_id) == col(ChangeSet.id))
                 .join(Session, col(Session.id) == col(ChangeSet.session_id))
-                .where(Session.project_id == project_id)
                 .group_by(col(ChangeSet.session_id), col(Change.status))
             )
+            if project_id is not None:
+                await self._get_project(db, project_id)
+                sessions = sessions.where(Session.project_id == project_id)
+                totals_query = totals_query.where(Session.project_id == project_id)
+            rows = (await db.exec(sessions)).all()
+            counts: dict[int, ChangeCounts] = {}
+            totals = await db.exec(totals_query)
             for session_id, status, count in totals:
                 summary = counts.setdefault(session_id, ChangeCounts())
                 if status == ChangeStatus.PENDING:
