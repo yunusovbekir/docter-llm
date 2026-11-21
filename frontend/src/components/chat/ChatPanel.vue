@@ -5,12 +5,12 @@ import ChatInput from './ChatInput.vue'
 import MessageList from './MessageList.vue'
 
 const props = defineProps<{ session: components['schemas']['SessionDetail'] }>()
-const { messages, isStreaming, send } = useChat(props.session)
+const { entries, waiting, isStreaming, send } = useChat(props.session)
 </script>
 
 <template>
   <section aria-label="Chat" class="space-y-4">
-    <MessageList :messages="messages" />
+    <MessageList :entries="entries" :waiting="waiting" />
     <ChatInput :busy="isStreaming" @send="send" />
   </section>
 </template>

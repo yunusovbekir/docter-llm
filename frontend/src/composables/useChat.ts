@@ -1,49 +1,68 @@
-import { computed, ref } from 'vue'
+import { computed, reactive } from 'vue'
 import type { components } from '../api/schema'
-import { useToast } from '../stores/toast'
-import type { ChatMessage } from '../types/chat'
+import type { ChatMessage, ChatToolCall } from '../types/chat'
+import { chatHistory } from './chatHistory'
 import { useEventStream } from './useEventStream'
 
 type Session = components['schemas']['SessionDetail']
 
 export function useChat(session: Session) {
-  const history: ChatMessage[] = []
-  for (const { id, role, content } of session.messages) {
-    if ((role === 'user' || role === 'assistant') && content) {
-      history.push({ key: `saved-${id}`, role, text: content })
-    }
-  }
-
-  const local = ref<ChatMessage[]>([])
-  const reply = ref('')
-  let turn = 0
+  const entries = reactive(chatHistory(session.messages))
+  const pending = new Map<string, ChatToolCall>()
+  let reply: ChatMessage | undefined
+  let nextId = 0
+  const key = () => `live-${++nextId}`
   const body: components['schemas']['ChatRequest'] = { message: '' }
   const stream = useEventStream(`/api/sessions/${session.id}/chat`, body)
-  const toast = useToast()
   stream.onEvent((event) => {
-    if (event.type === 'token') reply.value += event.text
-    else if (event.type === 'error') toast.error(event.message)
+    switch (event.type) {
+      case 'token':
+        if (reply) reply.text += event.text
+        else {
+          reply = reactive<ChatMessage>({ key: key(), role: 'assistant', text: event.text })
+          entries.push(reply)
+        }
+        break
+      case 'tool_call': {
+        reply = undefined
+        const entry = reactive<ChatToolCall>({
+          key: key(),
+          role: 'tool',
+          name: event.name,
+          arguments: event.arguments,
+        })
+        pending.set(event.id, entry)
+        entries.push(entry)
+        break
+      }
+      case 'tool_result': {
+        const entry = pending.get(event.id)
+        if (!entry) break
+        entry.outcome = { result: event.result, isError: event.is_error }
+        pending.delete(event.id)
+        break
+      }
+      case 'warning':
+      case 'error':
+        reply = undefined
+        entries.push({ key: key(), role: event.type, text: event.message })
+        break
+    }
   })
 
-  const messages = computed<ChatMessage[]>(() => [
-    ...history,
-    ...local.value,
-    ...(stream.isStreaming.value
-      ? [{ key: `assistant-${turn}`, role: 'assistant' as const, text: reply.value }]
-      : []),
-  ])
+  const waiting = computed(() => stream.isStreaming.value && entries.at(-1)?.role === 'user')
 
   async function send(text: string) {
     if (stream.isStreaming.value || !text.trim()) return
-    const current = ++turn
     body.message = text.trim()
-    local.value.push({ key: `user-${current}`, role: 'user', text: body.message })
-    reply.value = ''
+    entries.push({ key: key(), role: 'user', text: body.message })
+    reply = undefined
     await stream.start()
-    if (reply.value) {
-      local.value.push({ key: `assistant-${current}`, role: 'assistant', text: reply.value })
+    for (const entry of pending.values()) {
+      entry.outcome = { result: 'No tool result was received.', isError: true }
     }
+    pending.clear()
   }
 
-  return { messages, isStreaming: stream.isStreaming, send }
+  return { entries, waiting, isStreaming: stream.isStreaming, send }
 }

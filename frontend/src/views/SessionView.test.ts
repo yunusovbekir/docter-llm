@@ -7,7 +7,6 @@ import { createMemoryHistory, RouterView } from 'vue-router'
 import type { components } from '../api/schema'
 import { useEventStream } from '../composables/useEventStream'
 import { createAppRouter } from '../router'
-import { useToast } from '../stores/toast'
 import { server } from '../test/msw'
 import type { StreamEvent } from '../types/events'
 
@@ -106,7 +105,7 @@ async function render() {
   const pinia = createPinia()
   const wrapper = mount(RouterView, { global: { plugins: [pinia, router] } })
   await vi.waitFor(() => expect(wrapper.find('[role="log"]').exists()).toBe(true))
-  return { wrapper, stream, pinia }
+  return { wrapper, stream }
 }
 
 it('loads session history and shows the project, mode, and branch', async () => {
@@ -172,12 +171,10 @@ it('sends on Enter but not Shift+Enter, then appends tokens to the same assistan
   expect(wrapper.get('button').attributes('disabled')).toBeDefined()
   await stream.emit({ type: 'token', text: 'Updated ' })
   expect(log.get('.assistant-markdown').text()).toBe('Updated')
-  await stream.emit({ type: 'warning', message: 'Not shown here' })
   await stream.emit({ type: 'token', text: '**docs**.' })
   expect(log.findAll('li')).toHaveLength(2)
   expect(log.get('.assistant-markdown').text()).toBe('Updated docs.')
   expect(log.get('strong').text()).toBe('docs')
-  expect(log.text()).not.toContain('Not shown here')
   await stream.finish()
   expect(log.get('.assistant-markdown').text()).toBe('Updated docs.')
 })
@@ -209,12 +206,101 @@ it('follows new tokens only while the reader is near the bottom', async () => {
   await stream.finish()
 })
 
-it('reports a failed stream without leaving an empty assistant bubble', async () => {
-  const { wrapper, stream, pinia } = await render()
+it('shows warnings and errors inline without leaving an empty assistant bubble', async () => {
+  const { wrapper, stream } = await render()
   await wrapper.get('textarea').setValue('Review the docs')
   await wrapper.get('form').trigger('submit')
+  await stream.emit({ type: 'warning', message: 'Limited context.' })
   await stream.emit({ type: 'error', code: 'network_error', message: 'Connection lost.' })
   await stream.finish()
-  expect(useToast(pinia).toasts).toMatchObject([{ kind: 'error', message: 'Connection lost.' }])
-  expect(wrapper.get('[role="log"]').findAll('li')).toHaveLength(1)
+  const log = wrapper.get('[role="log"]')
+  expect(log.findAll('li').map((item) => item.text())).toEqual([
+    'YouReview the docs',
+    'Warning: Limited context.',
+    'Error: Connection lost.',
+  ])
+  expect(log.get('[role="status"]').classes()).toContain('bg-amber-50')
+  expect(log.get('[role="alert"]').classes()).toContain('bg-red-50')
+})
+
+it('pairs out-of-order tool results by ID and keeps the cards at their call positions', async () => {
+  const { wrapper, stream } = await render()
+  await wrapper.get('textarea').setValue('Review the docs')
+  await wrapper.get('form').trigger('submit')
+  await stream.emit({ type: 'token', text: 'Checking files.' })
+  await stream.emit({ type: 'tool_call', id: 'a', name: 'read', arguments: { path: 'a' } })
+  await stream.emit({ type: 'tool_call', id: 'b', name: 'read', arguments: { path: 'b' } })
+  const log = wrapper.get('[role="log"]')
+  expect(log.findAll('summary').map((summary) => summary.text())).toEqual([
+    'read Running',
+    'read Running',
+  ])
+  await stream.emit({
+    type: 'tool_result',
+    id: 'b',
+    name: 'read',
+    result: 'Not found',
+    is_error: true,
+  })
+  await stream.emit({
+    type: 'tool_result',
+    id: 'a',
+    name: 'read',
+    result: { lines: 2 },
+    is_error: false,
+  })
+  await stream.emit({ type: 'token', text: 'Finished.' })
+  await stream.finish()
+
+  expect(
+    log.findAll('li').map((item) => item.element.firstElementChild?.textContent?.trim()),
+  ).toEqual([
+    'YouReview the docs',
+    'AssistantChecking files.',
+    expect.stringContaining('read OK'),
+    expect.stringContaining('read Error'),
+    'AssistantFinished.',
+  ])
+  const [ok, error] = log.findAll('details')
+  expect(ok?.findAll('pre').map((pre) => pre.text())).toEqual([
+    '{\n  "path": "a"\n}',
+    '{\n  "lines": 2\n}',
+  ])
+  expect(error?.findAll('pre').map((pre) => pre.text())).toEqual([
+    '{\n  "path": "b"\n}',
+    'Not found',
+  ])
+  expect(error?.get('summary span:last-child').classes()).toContain('bg-red-100')
+})
+
+it('renders saved tool calls with their replies and lets the reader expand and truncate long results', async () => {
+  const result = 'x'.repeat(2_000) + ' end'
+  mockHistory(
+    {
+      ...message(1, 'assistant', null),
+      tool_calls: [
+        { id: 'a', type: 'function', function: { name: 'read', arguments: '{"path":"a"}' } },
+        { id: 'b', type: 'function', function: { name: 'read', arguments: '{"path":"b"}' } },
+      ],
+    },
+    { ...message(2, 'tool', 'Tool error: Not found'), tool_call_id: 'b' },
+    { ...message(3, 'tool', result), tool_call_id: 'a' },
+  )
+  const { wrapper } = await render()
+  const [ok, error] = wrapper.findAll<HTMLDetailsElement>('details')
+  expect(ok?.element.open).toBe(false)
+  ok?.get('summary').element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  expect(ok?.element.open).toBe(true)
+  expect(ok?.get('summary').text()).toBe('read OK')
+  expect(ok?.get('pre').text()).toBe('{\n  "path": "a"\n}')
+  expect(ok?.get('pre:last-child').text()).toBe(result.slice(0, 2_000))
+  expect(ok?.get('button').text()).toBe('Show more')
+  await ok?.get('button').trigger('click')
+  expect(ok?.get('pre:last-child').text()).toBe(result)
+  await ok?.get('button').trigger('click')
+  expect(ok?.get('pre:last-child').text()).toBe(result.slice(0, 2_000))
+  ok?.get('summary').element.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  expect(ok?.element.open).toBe(false)
+  expect(error?.get('summary').text()).toBe('read Error')
+  expect(error?.get('pre:last-child').text()).toBe('Not found')
 })

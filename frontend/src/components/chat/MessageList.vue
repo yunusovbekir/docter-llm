@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, useTemplateRef, watch } from 'vue'
-import type { ChatMessage } from '../../types/chat'
+import { onMounted, onUpdated, useTemplateRef, watch } from 'vue'
+import type { ChatEntry } from '../../types/chat'
 import AssistantMarkdown from './AssistantMarkdown.vue'
+import ToolCallCard from './ToolCallCard.vue'
 
-const props = defineProps<{ messages: ChatMessage[] }>()
+const props = defineProps<{ entries: ChatEntry[]; waiting: boolean }>()
 const viewport = useTemplateRef('viewport')
 let follow = true
 
@@ -18,7 +19,12 @@ function scrollToBottom() {
 }
 
 onMounted(scrollToBottom)
-watch(() => props.messages, scrollToBottom, { flush: 'post' })
+onUpdated(scrollToBottom)
+watch(
+  () => props.entries.map((entry) => (entry.role === 'tool' ? entry.outcome : undefined)),
+  scrollToBottom,
+  { flush: 'post' },
+)
 </script>
 
 <template>
@@ -31,24 +37,42 @@ watch(() => props.messages, scrollToBottom, { flush: 'post' })
     @scroll="updateFollow"
     @load.capture="scrollToBottom"
   >
-    <p v-if="!messages.length" class="text-sm text-slate-600 dark:text-slate-400">
+    <p v-if="!entries.length" class="text-sm text-slate-600 dark:text-slate-400">
       No messages yet. Send a message to start the conversation.
     </p>
     <ol v-else class="space-y-3">
-      <li
-        v-for="message in messages"
-        :key="message.key"
-        class="rounded-md p-3 text-sm"
-        :class="
-          message.role === 'user' ? 'bg-blue-50 dark:bg-blue-950' : 'bg-slate-100 dark:bg-slate-800'
-        "
-      >
-        <p class="mb-1 font-semibold">{{ message.role === 'user' ? 'You' : 'Assistant' }}</p>
-        <p v-if="message.role === 'user'" class="whitespace-pre-wrap break-words">
-          {{ message.text }}
+      <li v-for="message in entries" :key="message.key">
+        <ToolCallCard v-if="message.role === 'tool'" :call="message" />
+        <p
+          v-else-if="message.role === 'warning' || message.role === 'error'"
+          :role="message.role === 'error' ? 'alert' : 'status'"
+          class="break-words rounded-md border p-3 text-sm"
+          :class="
+            message.role === 'error'
+              ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+              : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200'
+          "
+        >
+          <strong>{{ message.role === 'error' ? 'Error:' : 'Warning:' }}</strong> {{ message.text }}
         </p>
-        <AssistantMarkdown v-else-if="message.text" :text="message.text" />
-        <p v-else>Waiting for a response...</p>
+        <div
+          v-else
+          class="rounded-md p-3 text-sm"
+          :class="
+            message.role === 'user'
+              ? 'bg-blue-50 dark:bg-blue-950'
+              : 'bg-slate-100 dark:bg-slate-800'
+          "
+        >
+          <p class="mb-1 font-semibold">{{ message.role === 'user' ? 'You' : 'Assistant' }}</p>
+          <p v-if="message.role === 'user'" class="whitespace-pre-wrap break-words">
+            {{ message.text }}
+          </p>
+          <AssistantMarkdown v-else :text="message.text" />
+        </div>
+      </li>
+      <li v-if="waiting" class="rounded-md bg-slate-100 p-3 text-sm dark:bg-slate-800">
+        Waiting for a response...
       </li>
     </ol>
   </div>
