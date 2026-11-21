@@ -18,7 +18,7 @@ export function createAppRouter(history: RouterHistory) {
           { path: ':id', component: ProjectDetailView, props: true },
         ],
       },
-      { path: '/sessions/:id', component: SessionView },
+      { path: '/sessions/:id', component: SessionView, props: true },
       { path: '/history', component: HistoryView },
       { path: '/settings', component: SettingsView },
       { path: '/:pathMatch(.*)*', component: NotFoundView },
