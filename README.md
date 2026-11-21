@@ -96,6 +96,12 @@ stack at once; they dismiss after five seconds, or sooner if dismissed manually
 or replaced by a newer toast. Uncaught Vue errors and unhandled promise rejections
 show the API message for an `ApiError` and a generic message otherwise.
 
+For POST-based event streams, `useEventStream(url, body)` exposes `start()`,
+`abort()`, `isStreaming`, and `onEvent(handler)`. The handler receives typed
+events, and `onEvent` returns an unsubscribe function. A stream never
+retries automatically, including when the tab is hidden, and is aborted when
+its component unmounts.
+
 To run the services separately, start `uv run docter` from the repository root.
 Vite forwards `/api` to `http://127.0.0.1:8000` by default, or to the port set by
 `DOCTER_PORT`. Run `pnpm preview` from `frontend/` to serve the production build

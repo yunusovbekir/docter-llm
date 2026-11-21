@@ -39,6 +39,15 @@ function isErrorResponse(body: unknown): body is ErrorResponse {
   )
 }
 
+export function normalizeHttpError(response: Response, body: unknown): ApiError {
+  const { status, statusText } = response
+  if (isErrorResponse(body)) {
+    const { code, message } = body.error
+    return new ApiError(code, message, status)
+  }
+  return new ApiError('http_error', statusText || `HTTP ${status}`, status)
+}
+
 export function unwrap<Result extends { response: Response }>(
   request: Promise<Result>,
 ): Promise<Extract<Result, { data: unknown }>['data']>
@@ -55,11 +64,5 @@ export async function unwrap(
 
   if (result.response.ok && 'data' in result) return result.data
 
-  const { status, statusText } = result.response
-  if ('error' in result && isErrorResponse(result.error)) {
-    const { code, message } = result.error.error
-    throw new ApiError(code, message, status)
-  }
-
-  throw new ApiError('http_error', statusText || `HTTP ${status}`, status)
+  throw normalizeHttpError(result.response, result.error)
 }

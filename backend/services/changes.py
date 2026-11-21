@@ -62,13 +62,14 @@ class DbChangeSink:
             )
             db.add(row)
             await db.flush()
-            assert row.id is not None
+            change_id = row.id
+            assert change_id is not None
             db.add_all(
-                ChangeHunk(change_id=row.id, index=index, header=header)
+                ChangeHunk(change_id=change_id, index=index, header=header)
                 for index, header in enumerate(validated.headers)
             )
             await db.commit()
-        return Ok()
+        return Ok(change_id=change_id)
 
 
 async def get_change(db: AsyncSession, change_id: int) -> Change:
