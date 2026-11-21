@@ -14,7 +14,8 @@
     "gen:api": "node scripts/gen-api.mjs",
     "lint": "eslint .",
     "typecheck": "vue-tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@guolao/vue-monaco-editor": "^1.6.0",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
+    "@playwright/test": "^1.65.1",
     "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.0.0",
     "@vitejs/plugin-vue": "^6.0.0",

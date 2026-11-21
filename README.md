@@ -86,6 +86,11 @@ pnpm dev     # http://localhost:5173
 `http://127.0.0.1:8000/openapi.json`, or from the checked-in
 `frontend/src/api/openapi.json` when the endpoint is unavailable.
 
+To run the Playwright happy path from `frontend/`, install Chromium with
+`pnpm exec playwright install --with-deps chromium` on Linux, then run `pnpm build`
+and `pnpm e2e`. Playwright starts `pnpm preview` on `127.0.0.1:4173` and mocks
+the API and chat event stream. No backend, API key, or local Git repository is needed.
+
 Shared UI primitives live in `frontend/src/components/common/`. Bind `AppInput`
 and `AppSelect` with `v-model` and provide a visible `label`. Control `AppModal`
 with `:open` and set it to `false` in the `@close` handler. Set the Tailwind
