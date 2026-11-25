@@ -45,6 +45,7 @@ warn_required_dynamic_aliases = true
 
 [dependency-groups]
 dev = [
+    "alembic>=1.17.0",
     "docter-contract",
     "docter-mcp",
     "docter",

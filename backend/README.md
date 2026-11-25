@@ -70,6 +70,45 @@ These paths are derived from `data_dir`. They are created at startup.
   logs/           # docter.log (rotating, 5 MB x 3) and mcp-server.log (MCP server stderr)
 ```
 
+### SQL schema migrations
+
+From the repository root, run `uv sync` to install the Alembic tooling. Migrations
+use the same local `docter.db` as the backend (`~/.docter/docter.db` by default, or
+`$DOCTER_DATA_DIR/docter.db` if set) and the existing `aiosqlite` driver. No data is
+sent to a remote service.
+
+**Fresh database:** Run `uv run alembic upgrade head` before starting Docter.
+Alembic creates the schema and records its revision in `alembic_version`. Use
+`uv run alembic current` to see the recorded revision. Ordinary `uv run docter`
+startup still creates missing tables with SQLModel `create_all`; it does not run
+migrations or record a revision.
+
+**Existing, unversioned SQLite database:** Stop Docter and other writers, verify
+the data directory and database path, and take a backup before running Alembic.
+For example, with the SQLite CLI and a new backup filename (replace the source
+path if you set `DOCTER_DATA_DIR`):
+
+```bash
+sqlite3 -readonly "$HOME/.docter/docter.db" '.backup docter-before-alembic.db'
+```
+
+1. Confirm there is no `alembic_version` table and that the existing schema
+   matches revision `0001`. To get a reference schema, use a new, empty data
+   directory: `DOCTER_DATA_DIR=/path/to/empty-scratch-dir uv run alembic upgrade 0001`.
+   Use `sqlite3 -readonly /path/to/docter.db '.schema'` on the backup and the
+   reference database; compare the application tables, columns, constraints, and
+   indexes, ignoring `alembic_version` and formatting or statement ordering.
+   If the schema differs, do not stamp it; resolve the differences on a copy first.
+2. With `DOCTER_DATA_DIR` pointing back to the **existing** database's directory
+   (or unset for the default path), run `uv run alembic stamp 0001`. Stamping
+   records only the revision; it does not recreate tables or alter app rows.
+3. Run `uv run alembic upgrade head` to apply any later revisions, then
+   `uv run alembic current` to verify the result before restarting Docter.
+
+Do not run `upgrade head` directly on an unversioned database that already has
+app tables. Downgrading to `base` drops the app tables and their data; it is not
+a backup or a way to undo a stamp.
+
 ## Architecture
 
 ```mermaid
