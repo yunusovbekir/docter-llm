@@ -132,6 +132,9 @@ The API docs are at http://127.0.0.1:8000/docs. Run a single backend worker: cha
 indexing jobs are process-local. Startup resets interrupted chat runs to `idle` and
 interrupted indexing jobs to `failed`, allowing them to be retried.
 
+For versioned app schema upgrades and instructions for baselining an existing
+SQLite database, see [SQL schema migrations](backend/README.md#sql-schema-migrations).
+
 Export the OpenAPI contract for the frontend after API changes:
 
 ```bash
