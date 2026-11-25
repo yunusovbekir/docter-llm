@@ -1,6 +1,7 @@
 # Docter Backend
 
-FastAPI backend for Docter. It hosts the agent, acts as the MCP client, stores state in SQLite, and serves the built Vue UI.
+FastAPI backend for Docter. It hosts the agent, acts as the MCP client, stores app
+state in SQLite or PostgreSQL, and serves the built Vue UI.
 
 See [`../docs/README.md`](../docs/README.md) for the overall project plan and [`../docs/backend_features.md`](../docs/backend_features.md) for the backend roadmap.
 
@@ -51,6 +52,7 @@ fields. Define configuration on this class, not as module-level variables in con
 | Variable                     | Default                        | Description                                         |
 |------------------------------|--------------------------------|-----------------------------------------------------|
 | `DOCTER_DATA_DIR`          | `~/.docter`                  | Root directory for all local data                   |
+| `DOCTER_DATABASE_URL`      | `sqlite+aiosqlite:///<data_dir>/docter.db` | Async SQLAlchemy URL for app state |
 | `DOCTER_HOST`              | `127.0.0.1`                    | Bind address                                        |
 | `DOCTER_PORT`              | `8000`                         | Bind port                                           |
 | `DOCTER_LOG_LEVEL`         | `INFO`                         | `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`  |
@@ -64,33 +66,65 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ```
 ~/.docter/
-  docter.db     # SQLite database
+  docter.db     # default SQLite database; unused when the app is configured for PostgreSQL
   index/          # vector indexes
   worktrees/      # git worktrees for sessions
   logs/           # docter.log (rotating, 5 MB x 3) and mcp-server.log (MCP server stderr)
 ```
 
+### Application database
+
+Leave `DOCTER_DATABASE_URL` unset to use the default SQLite file. To use an
+existing local or remote PostgreSQL database, install the optional Psycopg 3
+driver and use the `postgresql+psycopg` URL scheme. SQLAlchemy uses Psycopg's
+async implementation.
+
+```bash
+uv sync --group postgres
+# Example for local PostgreSQL with a pre-created database and credentials in ~/.pgpass:
+export DOCTER_DATABASE_URL='postgresql+psycopg://docter@127.0.0.1:5432/docter'
+uv run --group postgres alembic upgrade head
+uv run --group postgres docter
+```
+
+For remote PostgreSQL, use the server hostname and configure certificate
+verification, for example `?sslmode=verify-full&sslrootcert=/path/to/ca.pem`.
+Use a password file or secret manager instead of committing credentials. If
+embedding credentials in the URL, percent-encode reserved characters. The
+configured role needs access to the database and application schema, including
+table creation for initial setup and read/write access for normal operation.
+Docter fails startup if the configured database is unavailable; it does not
+fall back to SQLite. Changing the URL does not copy any existing data.
+
+A remote PostgreSQL server receives the app's persisted SQL data: LLM
+configuration (not API keys), project names and local paths, session metadata,
+conversation messages and tool calls, proposed patches and file snapshots, and
+review comments. API keys remain in the OS keyring. The MCP index, Git worktrees,
+and logs stay in their existing locations and are not moved by this setting.
+PostgreSQL enforces the schema's foreign keys; delete a project's sessions before
+deleting the project.
+
+To run the opt-in integration tests, set `DOCTER_TEST_POSTGRES_URL` to a disposable
+PostgreSQL database using the same URL scheme, then run
+`uv run --group postgres pytest backend/tests/test_postgres.py`. The test role
+needs permission to create and drop its temporary schemas.
+
 ### SQL schema migrations
 
-Alembic versions the Docter application schema as groundwork for PostgreSQL
-support. The migration tooling currently targets SQLite only; PostgreSQL
-connections are not supported yet.
+Alembic uses the same database URL as the app. For a fresh database, run
+`uv run alembic upgrade head` before starting Docter (add `--group postgres`
+after `run` for PostgreSQL). Alembic creates the schema and records the revision
+in `alembic_version`; replace `upgrade head` with `current` to see the
+recorded revision.
+Ordinary startup still creates missing tables with SQLModel `create_all`; it does
+not run migrations or record a revision.
 
-From the repository root, run `uv sync` to install Alembic. The commands below
-use the same local `docter.db` as the backend (`~/.docter/docter.db` by default,
-or `$DOCTER_DATA_DIR/docter.db` if set) and the existing `aiosqlite` driver.
-No data is sent to a remote service.
-
-**Fresh SQLite database:** Run `uv run alembic upgrade head` before starting Docter.
-Alembic creates the schema and records its revision in `alembic_version`. Use
-`uv run alembic current` to see the recorded revision. Ordinary `uv run docter`
-startup still creates missing tables with SQLModel `create_all`; it does not run
-migrations or record a revision.
-
-**Existing, unversioned SQLite database:** Stop Docter and other writers, verify
-the data directory and database path, and take a backup before running Alembic.
+**Existing, unversioned SQLite database:** Ensure `DOCTER_DATABASE_URL` selects
+the SQLite database you intend to baseline (unset it for the default file).
+Stop Docter and other writers, verify the database path, and take a backup
+before running Alembic.
 For example, with the SQLite CLI and a new backup filename (replace the source
-path if you set `DOCTER_DATA_DIR`):
+path if you configured a different SQLite file):
 
 ```bash
 sqlite3 -readonly "$HOME/.docter/docter.db" '.backup docter-before-alembic.db'
@@ -98,13 +132,14 @@ sqlite3 -readonly "$HOME/.docter/docter.db" '.backup docter-before-alembic.db'
 
 1. Confirm there is no `alembic_version` table and that the existing schema
    matches revision `0001`. To get a reference schema, use a new, empty data
-   directory: `DOCTER_DATA_DIR=/path/to/empty-scratch-dir uv run alembic upgrade 0001`.
+   directory with `DOCTER_DATABASE_URL` unset:
+   `DOCTER_DATA_DIR=/path/to/empty-scratch-dir uv run alembic upgrade 0001`.
    Use `sqlite3 -readonly /path/to/docter.db '.schema'` on the backup and the
    reference database; compare the application tables, columns, constraints, and
    indexes, ignoring `alembic_version` and formatting or statement ordering.
    If the schema differs, do not stamp it; resolve the differences on a copy first.
-2. With `DOCTER_DATA_DIR` pointing back to the **existing** database's directory
-   (or unset for the default path), run `uv run alembic stamp 0001`. Stamping
+2. With the configuration pointing back to the **existing** SQLite database,
+   run `uv run alembic stamp 0001`. Stamping
    records only the revision; it does not recreate tables or alter app rows.
 3. Run `uv run alembic upgrade head` to apply any later revisions, then
    `uv run alembic current` to verify the result before restarting Docter.
@@ -131,7 +166,7 @@ flowchart TB
         Gateway["LiteLLM gateway<br/>llm/"]
         MCPClient["MCP manager<br/>mcp_client/"]
         Git["Git helpers<br/>repository checks, patch validation, commits"]
-        DB[("SQLite<br/>SQLModel via db.py")]
+        DB[("SQLite or PostgreSQL<br/>SQLModel via db.py")]
 
         App --> API
         API --> Projects

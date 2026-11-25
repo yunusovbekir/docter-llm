@@ -11,9 +11,36 @@ def test_data_dir_fixture_drives_settings_from_env(data_dir: Path) -> None:
 
     assert settings.data_dir == data_dir.resolve()
     assert settings.db_path == data_dir.resolve() / "docter.db"
+    assert settings.database_url == f"sqlite+aiosqlite:///{settings.db_path}"
     assert settings.index_dir == data_dir.resolve() / "index"
     assert settings.worktrees_dir == data_dir.resolve() / "worktrees"
     assert settings.logs_dir == data_dir.resolve() / "logs"
+
+
+def test_database_url_from_env_is_not_dumped(monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "postgresql+psycopg://test-user:dummy-password@localhost/docter"
+    monkeypatch.setenv("DOCTER_DATABASE_URL", url)
+
+    settings = Settings()
+
+    assert settings.database_url == url
+    assert "dummy-password" not in repr(settings)
+    assert "database_url" not in settings.model_dump()
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["", "not-a-url-with-dummy-password", "postgresql://user:dummy-password@localhost/db"],
+)
+def test_rejects_invalid_or_unsupported_database_urls(
+    monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    monkeypatch.setenv("DOCTER_DATABASE_URL", url)
+
+    with pytest.raises(ValidationError, match="database_url") as caught:
+        Settings()
+
+    assert "dummy-password" not in str(caught.value)
 
 
 def test_data_dir_defaults_to_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

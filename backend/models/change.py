@@ -3,6 +3,7 @@
 from datetime import datetime
 from enum import StrEnum
 
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy import Text, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
@@ -42,7 +43,9 @@ class Change(SQLModel, table=True):
     file_path: str
     patch: str = Field(sa_type=Text)
     rationale: str = Field(sa_type=Text)
-    status: ChangeStatus = ChangeStatus.PENDING
+    status: ChangeStatus = Field(
+        default=ChangeStatus.PENDING, sa_type=SAEnum(ChangeStatus, native_enum=False)
+    )
     parent_change_id: int | None = Field(default=None, foreign_key="changes.id")
     created_at: datetime = Field(default_factory=utcnow, sa_type=UTCDateTime)
     original_content: str = Field(sa_type=Text)
@@ -59,4 +62,6 @@ class ChangeHunk(SQLModel, table=True):
     change_id: int = Field(foreign_key="changes.id", index=True)
     index: int
     header: str
-    status: ChangeStatus = ChangeStatus.PENDING
+    status: ChangeStatus = Field(
+        default=ChangeStatus.PENDING, sa_type=SAEnum(ChangeStatus, native_enum=False)
+    )

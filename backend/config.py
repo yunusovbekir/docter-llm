@@ -3,11 +3,13 @@
 import shlex
 from functools import lru_cache
 from pathlib import Path
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
 import anyio
 from pydantic import AnyHttpUrl, Field, TypeAdapter, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
@@ -16,10 +18,16 @@ def _default_data_dir() -> Path:
     return Path.home() / ".docter"
 
 
+def _default_database_url(data: dict[str, Any]) -> str:
+    return f"sqlite+aiosqlite:///{Path(data['data_dir']) / 'docter.db'}"
+
+
 class Settings(BaseSettings):
     """Runtime configuration for the Docter backend."""
 
-    model_config = SettingsConfigDict(env_prefix="DOCTER_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="DOCTER_", extra="ignore", hide_input_in_errors=True
+    )
 
     SETTINGS_ROW_ID: ClassVar[int] = 1
     DEFAULT_PROVIDER: ClassVar[str] = "openai"
@@ -64,6 +72,7 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = Field(default_factory=_default_data_dir)
+    database_url: str = Field(default_factory=_default_database_url, repr=False, exclude=True)
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: LogLevel = "INFO"
@@ -75,6 +84,17 @@ class Settings(BaseSettings):
     @classmethod
     def _expand_path(cls, value: Path) -> Path:
         return value.expanduser().resolve()
+
+    @field_validator("database_url")
+    @classmethod
+    def _check_database_url(cls, value: str) -> str:
+        try:
+            driver = make_url(value).drivername
+        except (ArgumentError, ValueError):
+            raise ValueError("must be a valid async SQLAlchemy database URL") from None
+        if driver not in {"sqlite+aiosqlite", "postgresql+psycopg"}:
+            raise ValueError("must use sqlite+aiosqlite or postgresql+psycopg")
+        return value
 
     @field_validator("log_level", mode="before")
     @classmethod
@@ -95,13 +115,8 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
-        """Path of the SQLite database file."""
+        """Path of the default SQLite database file."""
         return self.data_dir / "docter.db"
-
-    @property
-    def database_url(self) -> str:
-        """Async SQLAlchemy URL for the SQLite database."""
-        return f"sqlite+aiosqlite:///{self.db_path}"
 
     @property
     def index_dir(self) -> Path:

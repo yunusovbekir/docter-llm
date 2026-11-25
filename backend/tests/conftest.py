@@ -23,6 +23,12 @@ from backend.tests.git_utils import GitRepoFactory, init_repo
 STUB_MCP_SERVER = Path(__file__).parent / "fixtures" / "stub_mcp_server.py"
 
 
+@pytest.fixture(autouse=True)
+def isolate_app_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never let the default suite connect to an operator's database."""
+    monkeypatch.delenv("DOCTER_DATABASE_URL", raising=False)
+
+
 @pytest.fixture
 def stub_mcp_command() -> list[str]:
     """Command that runs the stub MCP server with the current interpreter."""
