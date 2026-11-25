@@ -4,7 +4,7 @@ import hashlib
 import os
 import re
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing
 from dataclasses import replace
 from itertools import pairwise
@@ -32,6 +32,7 @@ from docter_mcp.indexing.chunks import doc_chunks
 from docter_mcp.indexing.metadata import IndexGeneration, SQLiteIndexMetadata
 from docter_mcp.indexing.service import Embedder, get_symbol, index_repo, search_code
 from docter_mcp.indexing.store import IndexStore
+from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk
 from docter_mcp.parsing.python import PythonParser
 from docter_mcp.sandbox import Sandbox
 
@@ -106,9 +107,10 @@ async def test_full_index_is_persistent_and_read_only(
         assert len(store.metadata.symbols_for_files(store.metadata.file_hashes().keys())) == (
             output.symbols
         )
-        table = store.table()
-        assert table is not None
-        assert table.count_rows() == output.chunks
+        generation = store.metadata.active_generation
+        assert generation is not None and generation.name
+        chunks = store.vectors.reuse(generation.name, store.metadata.file_hashes().keys())
+        assert len(chunks) == output.chunks
     symbol = get_symbol(GetSymbolInput(repo=str(repo), qualname="mylib.client.Client.send"), config)
     assert symbol.signature.startswith("def send(")
     assert symbol.source == next(
@@ -324,22 +326,66 @@ async def test_failed_manifest_commit_keeps_previous_generation(repo: Path, conf
                    BEGIN SELECT RAISE(FAIL, 'manifest write failed'); END"""
             )
             db.commit()
-        table = store.table()
-        assert table is not None
-        rows = table.to_arrow().to_pylist()
         hashes = store.metadata.file_hashes()
         names = store.metadata.symbol_names()
         vector_dir = store.path / "vectors"
         tables = set(vector_dir.glob("*.lance"))
         assert vector_dir / f"{generation.name}.lance" in tables
-        with pytest.raises(sqlite3.IntegrityError, match="manifest write failed"):
-            store.publish({"new.py": "replacement"}, [], rows, config.embedding_model)
-        assert store.metadata.active_generation == generation
-        assert set(vector_dir.glob("*.lance")) == tables
+    (repo / "new.py").write_text("def unpublished(): pass\n")
+    with pytest.raises(sqlite3.IntegrityError, match="manifest write failed"):
+        await index_repo(IndexRepoInput(repo=str(repo), force=True), config)
+    assert set(vector_dir.glob("*.lance")) == tables
     with IndexStore(Sandbox(repo), config) as store:
         assert store.metadata.active_generation == generation
         assert store.metadata.file_hashes() == hashes
         assert store.metadata.symbol_names() == names
+    hits = search_code(SearchCodeInput(repo=str(repo), query="send", k=1), config).results
+    assert hits[0].qualname == "mylib.client.Client.send"
+
+
+async def test_failed_vector_stage_discards_only_unpublished_generation(
+    repo: Path, config: Config, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await index_repo(IndexRepoInput(repo=str(repo)), config)
+    query = SearchCodeInput(repo=str(repo), query="send", k=3)
+    previous = search_code(query, config)
+    with IndexStore(Sandbox(repo), config) as store:
+        generation = store.metadata.active_generation
+        vector_dir = store.path / "vectors"
+
+    stage = LanceVectorStore.stage
+
+    def fail_after_write(self: LanceVectorStore, name: str, chunks: Sequence[VectorChunk]) -> None:
+        stage(self, name, chunks)
+        assert (vector_dir / f"{name}.lance").is_dir()
+        raise RuntimeError("staging failed after vector write")
+
+    monkeypatch.setattr(LanceVectorStore, "stage", fail_after_write)
+    with pytest.raises(RuntimeError, match="staging failed after vector write"):
+        await index_repo(IndexRepoInput(repo=str(repo), force=True), config)
+
+    assert generation is not None
+    assert set(vector_dir.glob("*.lance")) == {vector_dir / f"{generation.name}.lance"}
+    assert search_code(query, config) == previous
+
+
+def test_lance_scores_literal_candidate_ids(tmp_path: Path) -> None:
+    store = LanceVectorStore(tmp_path / "vectors")
+    first = doc_chunks("it's.md", "# Title\ntext\n")[0]
+    second = doc_chunks("other.md", "# Other\ntext\n")[0]
+    target_id = "it's.md:section:1"
+    store.stage(
+        "chunks_test",
+        [
+            VectorChunk(target_id, first, [0.0, 1.0]),
+            VectorChunk("other.md:section:1", second, [1.0, 0.0]),
+        ],
+    )
+    results = store.score_ids("chunks_test", [1.0, 0.0], [target_id])
+    assert [result.id for result in results] == [target_id]
+    assert results[0].hit.file == first.file
+    assert results[0].hit.qualname is None
+    assert results[0].hit.score == pytest.approx(0.0)
 
 
 def test_metadata_reads_and_updates_version_one_database(tmp_path: Path) -> None:
