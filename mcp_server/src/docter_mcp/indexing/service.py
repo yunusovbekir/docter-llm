@@ -103,12 +103,14 @@ async def index_repo(
         ]
         total = len(paths) + 2
         await _progress(ctx, 0, total, "Scanning repository")
+        generation = store.metadata.active_generation
         rebuild = (
             request.force
-            or store.metadata.get("model") != config.embedding_model
-            or store.metadata.get("version") != IndexStore.VERSION
+            or generation is None
+            or generation.model != config.embedding_model
+            or generation.version != IndexStore.VERSION
         )
-        previous = {} if rebuild else dict(store.sql.execute("SELECT path, hash FROM files"))
+        previous = {} if rebuild else store.metadata.file_hashes()
         hashes: dict[str, str] = {}
         changed: set[str] = set()
         symbols: list[GetSymbolOutput] = []
@@ -131,11 +133,7 @@ async def index_repo(
             else []
         )
         if not rebuild:
-            symbols.extend(
-                GetSymbolOutput.model_validate_json(payload)
-                for file, payload in store.sql.execute("SELECT file, payload FROM symbols")
-                if file in retained
-            )
+            symbols.extend(store.metadata.symbols_for_files(retained))
         await _progress(ctx, len(paths) + 1, total, "Embedding changed chunks")
         if chunks:
             vectors = await anyio.to_thread.run_sync(
@@ -198,7 +196,8 @@ def search_code(request: SearchCodeInput, config: Config) -> SearchCodeOutput:
     """Combine cosine similarity with exact/partial symbol-name candidate boosting."""
     sandbox = Sandbox(request.repo, config.allowed_roots)
     with IndexStore(sandbox, config) as store:
-        if store.metadata.get("model") != config.embedding_model:
+        generation = store.metadata.active_generation
+        if generation is None or generation.model != config.embedding_model:
             raise fail(ErrorCode.NOT_INDEXED, "Embedding model changed; run index_repo again.")
         table = store.table()
         if table is None:
@@ -213,14 +212,9 @@ def search_code(request: SearchCodeInput, config: Config) -> SearchCodeOutput:
             .to_list()
         )
         # Lexical candidates must be considered even when absent from the vector top-k.
-        candidates = store.sql.execute(
-            """SELECT id FROM symbols WHERE instr(lower(qualname), ?) > 0
-               AND (? IS NULL OR kind = ?)
-               ORDER BY lower(qualname) = ? DESC, length(qualname), qualname LIMIT ?""",
-            (query, request.kind, request.kind, query, request.k * 4),
-        ).fetchall()
+        candidates = store.metadata.lexical_candidates(query, request.kind, request.k * 4)
         if candidates:
-            ids = ", ".join("'" + item[0].replace("'", "''") + "'" for item in candidates)
+            ids = ", ".join("'" + item.replace("'", "''") + "'" for item in candidates)
             rows.extend(
                 _vector_search(table, vector)
                 .where(f"id IN ({ids})", prefilter=True)
@@ -233,17 +227,14 @@ def search_code(request: SearchCodeInput, config: Config) -> SearchCodeOutput:
 
 
 def get_symbol(request: GetSymbolInput, config: Config) -> GetSymbolOutput:
-    """Locate a qualname in SQLite, then reparse its file to return fresh source/metadata."""
+    """Locate an indexed qualname, then reparse its file for fresh source and metadata."""
     sandbox = Sandbox(request.repo, config.allowed_roots)
     with IndexStore(sandbox, config) as store:
-        found = store.sql.execute(
-            "SELECT file FROM symbols WHERE qualname = ? ORDER BY file LIMIT 1",
-            (request.qualname,),
-        ).fetchone()
-        if found is None:
+        file = store.metadata.symbol_file(request.qualname)
+        if file is None:
             raise fail(ErrorCode.SYMBOL_NOT_FOUND, f"No indexed symbol: {request.qualname}")
-        source = sandbox.read_text(found[0])
-        parsed = PythonParser().parse(found[0], source)
+        source = sandbox.read_text(file)
+        parsed = PythonParser().parse(file, source)
         for warning in parsed.warnings:
             logging.getLogger(__name__).warning("%s: %s", warning.path, warning.message)
         for symbol in parsed.symbols:

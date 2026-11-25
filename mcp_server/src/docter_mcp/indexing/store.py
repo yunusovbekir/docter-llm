@@ -1,7 +1,6 @@
 """SQLite manifests and immutable LanceDB generations, published together."""
 
 import hashlib
-import sqlite3
 from types import TracebackType
 from typing import Any
 from uuid import uuid4
@@ -11,6 +10,7 @@ from lancedb.table import Table
 
 from docter_contract import ErrorCode, GetSymbolOutput
 from docter_mcp.config import Config
+from docter_mcp.indexing.metadata import IndexGeneration, IndexMetadata, SQLiteIndexMetadata
 from docter_mcp.sandbox import Sandbox, fail
 
 
@@ -41,21 +41,9 @@ class IndexStore:
             raise fail(ErrorCode.NOT_INDEXED, "Run index_repo for this repository first.")
         if create:
             self.path.mkdir(parents=True, exist_ok=True)
-        self.sql = sqlite3.connect(database, check_same_thread=False)
-        self.sql.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, hash TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS symbols (
-                id TEXT PRIMARY KEY, file TEXT NOT NULL, qualname TEXT NOT NULL,
-                kind TEXT NOT NULL, payload TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS symbol_names ON symbols(qualname);
-            """
-        )
-        self.metadata = dict(self.sql.execute("SELECT key, value FROM metadata"))
-        if not create and "generation" not in self.metadata:
-            self.sql.close()
+        self.metadata: IndexMetadata = SQLiteIndexMetadata(database)
+        if not create and self.metadata.active_generation is None:
+            self.metadata.close()
             raise fail(ErrorCode.NOT_INDEXED, "No completed index exists; run index_repo.")
 
     def __enter__(self) -> "IndexStore":
@@ -67,14 +55,14 @@ class IndexStore:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self.sql.close()
+        self.metadata.close()
 
     def table(self) -> Table | None:
         """Open the published vectors; a successfully indexed empty repo has no table."""
-        name = self.metadata.get("generation", "")
-        if not name:
+        generation = self.metadata.active_generation
+        if generation is None or not generation.name:
             return None
-        return lancedb.connect(self.path / "vectors").open_table(name)
+        return lancedb.connect(self.path / "vectors").open_table(generation.name)
 
     def publish(
         self,
@@ -88,31 +76,10 @@ class IndexStore:
         generation = f"chunks_{uuid4().hex}" if rows else ""
         if generation:
             connection.create_table(generation, rows)
+        published = False
         try:
-            with self.sql:
-                self.sql.execute("DELETE FROM files")
-                self.sql.execute("DELETE FROM symbols")
-                self.sql.executemany("INSERT INTO files VALUES (?, ?)", hashes.items())
-                self.sql.executemany(
-                    "INSERT INTO symbols VALUES (?, ?, ?, ?, ?)",
-                    [
-                        (
-                            f"{symbol.file}:{symbol.qualname}",
-                            symbol.file,
-                            symbol.qualname,
-                            symbol.kind.value,
-                            symbol.model_dump_json(),
-                        )
-                        for symbol in symbols
-                    ],
-                )
-                self.sql.executemany(
-                    "INSERT OR REPLACE INTO metadata VALUES (?, ?)",
-                    [("generation", generation), ("model", model), ("version", self.VERSION)],
-                )
-        except sqlite3.Error:
-            if generation:
+            self.metadata.publish(IndexGeneration(generation, model, self.VERSION), hashes, symbols)
+            published = True
+        finally:
+            if generation and not published:
                 connection.drop_table(generation)
-            raise
-        # Published generations are retained so concurrent readers can finish safely.
-        self.metadata = {"generation": generation, "model": model, "version": self.VERSION}
