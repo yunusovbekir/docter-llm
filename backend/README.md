@@ -72,12 +72,16 @@ These paths are derived from `data_dir`. They are created at startup.
 
 ### SQL schema migrations
 
-From the repository root, run `uv sync` to install the Alembic tooling. Migrations
-use the same local `docter.db` as the backend (`~/.docter/docter.db` by default, or
-`$DOCTER_DATA_DIR/docter.db` if set) and the existing `aiosqlite` driver. No data is
-sent to a remote service.
+Alembic versions the Docter application schema as groundwork for PostgreSQL
+support. The migration tooling currently targets SQLite only; PostgreSQL
+connections are not supported yet.
 
-**Fresh database:** Run `uv run alembic upgrade head` before starting Docter.
+From the repository root, run `uv sync` to install Alembic. The commands below
+use the same local `docter.db` as the backend (`~/.docter/docter.db` by default,
+or `$DOCTER_DATA_DIR/docter.db` if set) and the existing `aiosqlite` driver.
+No data is sent to a remote service.
+
+**Fresh SQLite database:** Run `uv run alembic upgrade head` before starting Docter.
 Alembic creates the schema and records its revision in `alembic_version`. Use
 `uv run alembic current` to see the recorded revision. Ordinary `uv run docter`
 startup still creates missing tables with SQLModel `create_all`; it does not run
