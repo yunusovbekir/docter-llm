@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 from collections.abc import Callable, Iterator
+from contextlib import closing
 from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
@@ -28,6 +29,7 @@ from docter_contract import (
 from docter_mcp.config import Config
 from docter_mcp.indexing import service
 from docter_mcp.indexing.chunks import doc_chunks
+from docter_mcp.indexing.metadata import IndexGeneration, SQLiteIndexMetadata
 from docter_mcp.indexing.service import Embedder, get_symbol, index_repo, search_code
 from docter_mcp.indexing.store import IndexStore
 from docter_mcp.parsing.python import PythonParser
@@ -101,7 +103,9 @@ async def test_full_index_is_persistent_and_read_only(
     assert (config.index_dir / digest / "symbols.sqlite3").is_file()
     assert (config.index_dir / digest / "vectors").is_dir()
     with IndexStore(sandbox, config) as store:
-        assert store.sql.execute("SELECT COUNT(*) FROM symbols").fetchone()[0] == output.symbols
+        assert len(store.metadata.symbols_for_files(store.metadata.file_hashes().keys())) == (
+            output.symbols
+        )
         table = store.table()
         assert table is not None
         assert table.count_rows() == output.chunks
@@ -119,13 +123,13 @@ async def test_incremental_hashes_changes_deletions_and_force(
     request = IndexRepoInput(repo=str(repo))
     first = await index_repo(request, config)
     with IndexStore(Sandbox(repo), config) as store:
-        generation = store.metadata["generation"]
+        generation = store.metadata.active_generation
     second = await index_repo(request, config)
     assert second.files_indexed == 0
     assert (second.symbols, second.chunks) == (first.symbols, first.chunks)
     assert len(embeddings) == 1
     with IndexStore(Sandbox(repo), config) as store:
-        assert store.metadata["generation"] == generation
+        assert store.metadata.active_generation == generation
     path = repo / "src" / "mylib" / "added.py"
     path.write_text("def added():\n    return 42\n")
     added = await index_repo(request, config)
@@ -168,7 +172,7 @@ async def test_ignore_rules_nested_negation_and_removed_ignored_files(
     result = await index_repo(IndexRepoInput(repo=str(repo)), config)
     assert result.files_indexed == 4  # Three doc files and the re-included legacy module.
     with IndexStore(Sandbox(repo), config) as store:
-        assert set(dict(store.sql.execute("SELECT path, hash FROM files"))) == {
+        assert set(store.metadata.file_hashes()) == {
             "README.md",
             "docs/index.md",
             "docs/reference.rst",
@@ -177,7 +181,7 @@ async def test_ignore_rules_nested_negation_and_removed_ignored_files(
     (repo / "src" / "mylib" / ".gitignore").write_text("*.py\n")
     await index_repo(IndexRepoInput(repo=str(repo)), config)
     with IndexStore(Sandbox(repo), config) as store:
-        assert store.sql.execute("SELECT COUNT(*) FROM symbols").fetchone()[0] == 0
+        assert not store.metadata.symbol_names()
 
 
 @pytest.mark.parametrize(
@@ -312,21 +316,92 @@ async def test_failed_refresh_preserves_published_index(
 async def test_failed_manifest_commit_keeps_previous_generation(repo: Path, config: Config) -> None:
     await index_repo(IndexRepoInput(repo=str(repo)), config)
     with IndexStore(Sandbox(repo), config) as store:
-        generation = store.metadata["generation"]
-        store.sql.execute(
-            """CREATE TRIGGER reject_refresh BEFORE DELETE ON symbols
-               BEGIN SELECT RAISE(FAIL, 'manifest write failed'); END"""
-        )
+        generation = store.metadata.active_generation
+        assert generation is not None
+        with closing(sqlite3.connect(store.path / "symbols.sqlite3")) as db:
+            db.execute(
+                """CREATE TRIGGER reject_refresh BEFORE INSERT ON metadata
+                   BEGIN SELECT RAISE(FAIL, 'manifest write failed'); END"""
+            )
+            db.commit()
         table = store.table()
         assert table is not None
         rows = table.to_arrow().to_pylist()
-        hashes = dict(store.sql.execute("SELECT path, hash FROM files"))
+        hashes = store.metadata.file_hashes()
+        names = store.metadata.symbol_names()
+        vector_dir = store.path / "vectors"
+        tables = set(vector_dir.glob("*.lance"))
+        assert vector_dir / f"{generation.name}.lance" in tables
         with pytest.raises(sqlite3.IntegrityError, match="manifest write failed"):
-            store.publish(hashes, [], rows, config.embedding_model)
+            store.publish({"new.py": "replacement"}, [], rows, config.embedding_model)
+        assert store.metadata.active_generation == generation
+        assert set(vector_dir.glob("*.lance")) == tables
     with IndexStore(Sandbox(repo), config) as store:
-        assert store.metadata["generation"] == generation
-        assert dict(store.sql.execute("SELECT path, hash FROM files")) == hashes
-        assert store.sql.execute("SELECT COUNT(*) FROM symbols").fetchone()[0] > 0
+        assert store.metadata.active_generation == generation
+        assert store.metadata.file_hashes() == hashes
+        assert store.metadata.symbol_names() == names
+
+
+def test_metadata_reads_and_updates_version_one_database(tmp_path: Path) -> None:
+    database = tmp_path / "symbols.sqlite3"
+    symbol = next(
+        symbol
+        for symbol in PythonParser().parse("a.py", "def send(): pass\n").symbols
+        if symbol.kind is SymbolKind.FUNCTION
+    )
+    with closing(sqlite3.connect(database)) as db:
+        db.executescript(
+            """
+            CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE files (path TEXT PRIMARY KEY, hash TEXT NOT NULL);
+            CREATE TABLE symbols (
+                id TEXT PRIMARY KEY, file TEXT NOT NULL, qualname TEXT NOT NULL,
+                kind TEXT NOT NULL, payload TEXT NOT NULL
+            );
+            CREATE INDEX symbol_names ON symbols(qualname);
+            INSERT INTO metadata VALUES ('generation', 'chunks_existing'), ('model', 'm'),
+                ('version', '1');
+            INSERT INTO files VALUES ('a.py', 'hash');
+            """
+        )
+        payload = symbol.model_dump_json()
+        db.executemany(
+            "INSERT INTO symbols VALUES (?, ?, ?, ?, ?)",
+            [
+                ("b.py:a.send", "b.py", "a.send", "function", payload),
+                ("a.py:a.send", "a.py", "a.send", "function", payload),
+                ("c.py:send", "c.py", "send", "class", payload),
+            ],
+        )
+        db.commit()
+        schema = db.execute("SELECT * FROM sqlite_schema ORDER BY name").fetchall()
+
+    metadata = SQLiteIndexMetadata(database)
+    try:
+        assert metadata.active_generation == IndexGeneration("chunks_existing", "m", "1")
+        assert metadata.file_hashes() == {"a.py": "hash"}
+        assert metadata.symbol_names() == {"a.send", "send"}
+        assert metadata.symbol_file("a.send") == "a.py"
+        assert metadata.symbol_file("A.SEND") is None
+        assert metadata.symbols_for_files({"a.py"}) == [symbol]
+        assert metadata.lexical_candidates("send", None, 1) == ["c.py:send"]
+        assert set(metadata.lexical_candidates("send", SymbolKind.FUNCTION, 3)) == {
+            "a.py:a.send",
+            "b.py:a.send",
+        }
+        metadata.publish(IndexGeneration("", "m", "1"), {}, [])
+    finally:
+        metadata.close()
+
+    with closing(sqlite3.connect(database)) as db:
+        assert db.execute("SELECT * FROM sqlite_schema ORDER BY name").fetchall() == schema
+        assert dict(db.execute("SELECT key, value FROM metadata")) == {
+            "generation": "",
+            "model": "m",
+            "version": "1",
+        }
+        assert db.execute("SELECT * FROM files").fetchall() == []
+        assert db.execute("SELECT * FROM symbols").fetchall() == []
 
 
 async def test_first_index_failure_is_not_indexed(

@@ -164,7 +164,7 @@ def check_doc_drift(request: CheckDocDriftInput, config: Config) -> CheckDocDrif
     if request.path_prefix is not None:
         sandbox.resolve(request.path_prefix)
     with IndexStore(sandbox, config) as store:
-        names = {row[0] for row in store.sql.execute("SELECT qualname FROM symbols")}
+        names = store.metadata.symbol_names()
     roots = {name.split(".")[0] for name in names}
     paths = [
         path

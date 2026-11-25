@@ -193,8 +193,10 @@ Files without headings contribute one chunk; empty documentation contributes non
 fastembed runs locally; its first use may download the configured model. Model files
 are cached under `<index_dir>/models`. SQLite stores file content hashes and symbol
 metadata in `<index_dir>/<sha1(canonical_repo_path)>/symbols.sqlite3`; LanceDB vectors
-live alongside it in `vectors/`. A refresh reuses unchanged symbols and vectors, embeds
-only changed/new files, and removes deleted or newly ignored files from the active index.
+live alongside it in `vectors/`. SQLite is the only implementation of the internal
+index metadata interface; existing indexes need no migration. A refresh reuses
+unchanged symbols and vectors, embeds only changed/new files, and removes deleted
+or newly ignored files from the active index.
 `force=true` reparses and re-embeds every eligible file. `files_indexed` counts processed
 new/changed files (including syntax-invalid files), not deletions or unchanged files;
 `symbols` and `chunks` are totals for the completed index.
