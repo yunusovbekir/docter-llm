@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from pydantic import JsonValue
 from sqlalchemy import JSON
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
 from backend.models.types import UTCDateTime, utcnow
@@ -27,7 +28,9 @@ class Session(SQLModel, table=True):
     mode: str
     mode_params: dict[str, JsonValue] = Field(default_factory=dict, sa_type=JSON)
     branch_name: str | None = None
-    run_status: RunStatus = RunStatus.IDLE
+    run_status: RunStatus = Field(
+        default=RunStatus.IDLE, sa_type=SAEnum(RunStatus, native_enum=False)
+    )
     created_at: datetime = Field(default_factory=utcnow, sa_type=UTCDateTime)
     updated_at: datetime = Field(
         default_factory=utcnow, sa_type=UTCDateTime, sa_column_kwargs={"onupdate": utcnow}

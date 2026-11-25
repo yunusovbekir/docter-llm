@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, StringConstraints
+from sqlalchemy import Enum as SAEnum
 from sqlmodel import Field, SQLModel
 
 from backend.models.types import UTCDateTime, utcnow
@@ -28,7 +29,10 @@ class Project(SQLModel, table=True):
     name: str
     path: str = Field(unique=True)
     current_branch: str | None = None
-    index_status: IndexStatus = IndexStatus.IDLE
+    # Match the VARCHAR status columns in the schema migration on both backends.
+    index_status: IndexStatus = Field(
+        default=IndexStatus.IDLE, sa_type=SAEnum(IndexStatus, native_enum=False)
+    )
     indexed_at: datetime | None = Field(default=None, sa_type=UTCDateTime)
     created_at: datetime = Field(default_factory=utcnow, sa_type=UTCDateTime)
 

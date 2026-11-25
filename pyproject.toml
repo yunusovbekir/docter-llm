@@ -44,6 +44,7 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [dependency-groups]
+postgres = ["docter[postgres]"]
 dev = [
     "alembic>=1.17.0",
     "docter-contract",

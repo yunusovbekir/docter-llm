@@ -78,7 +78,7 @@ flowchart LR
         API["Backend<br/>FastAPI and agent"]
         MCP["MCP server<br/>repository and documentation tools"]
         Contract["Shared MCP tool schemas"]
-        AppDB[("App SQLite database<br/>projects, sessions, and changes")]
+        AppDB[("App SQL database<br/>SQLite or PostgreSQL")]
         Index[("Local code and docs index")]
         Repo["Original Git checkout"]
         Worktree["Session Git worktree<br/>docsmith/ branch"]
@@ -132,8 +132,10 @@ The API docs are at http://127.0.0.1:8000/docs. Run a single backend worker: cha
 indexing jobs are process-local. Startup resets interrupted chat runs to `idle` and
 interrupted indexing jobs to `failed`, allowing them to be retried.
 
-For versioned app schema upgrades and instructions for baselining an existing
-SQLite database, see [SQL schema migrations](backend/README.md#sql-schema-migrations).
+To use PostgreSQL instead of the default local SQLite file, see
+[Application database](backend/README.md#application-database). For versioned
+upgrades and SQLite baselining, see
+[SQL schema migrations](backend/README.md#sql-schema-migrations).
 
 Export the OpenAPI contract for the frontend after API changes:
 
