@@ -1,4 +1,4 @@
-"""Metadata interface and its local SQLite implementation."""
+"""Metadata interface, provider factory, and local SQLite implementation."""
 
 import sqlite3
 from collections.abc import Mapping, Sequence, Set
@@ -44,11 +44,36 @@ class IndexMetadata(Protocol):
     def close(self) -> None: ...
 
 
-def create_index_metadata(provider: str, database: Path) -> IndexMetadata:
+class MetadataPublishUncertainError(RuntimeError):
+    """The publication may have committed; the staged vectors must be retained."""
+
+
+def create_index_metadata(
+    provider: str,
+    database: Path,
+    *,
+    url: str | None = None,
+    index_key: str = "",
+    create: bool = False,
+) -> IndexMetadata:
     """Open the selected metadata store."""
     if provider == "sqlite":
         return SQLiteIndexMetadata(database)
-    raise ValueError(f"Unsupported metadata provider {provider!r}; expected 'sqlite'.")
+    if provider == "postgres":
+        if not url or not index_key:
+            raise ValueError("PostgreSQL metadata requires a connection URL and an index key.")
+        try:
+            from docter_mcp.indexing.postgres import PostgresIndexMetadata
+        except ImportError as exc:
+            if exc.name != "psycopg":
+                raise
+            raise RuntimeError(
+                "PostgreSQL index metadata requires the docter-mcp[postgres] extra."
+            ) from None
+        return PostgresIndexMetadata(url, index_key, create=create)
+    raise ValueError(
+        f"Unsupported metadata provider {provider!r}; expected 'sqlite' or 'postgres'."
+    )
 
 
 class SQLiteIndexMetadata:

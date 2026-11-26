@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 import anyio
-from pydantic import AnyHttpUrl, Field, TypeAdapter, field_validator
+from pydantic import AnyHttpUrl, Field, SecretStr, TypeAdapter, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -79,8 +79,23 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     frontend_dist_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     mcp_command: str = "uv run docter-mcp"
-    index_metadata_provider: Literal["sqlite"] = "sqlite"
+    index_metadata_provider: Literal["sqlite", "postgres"] = "sqlite"
     index_vector_provider: Literal["lancedb"] = "lancedb"
+    index_metadata_url: SecretStr | None = Field(default=None, repr=False, exclude=True)
+
+    @model_validator(mode="after")
+    def _check_index_metadata_url(self) -> "Settings":
+        if self.index_metadata_provider == "postgres" and (
+            self.index_metadata_url is None
+            or not self.index_metadata_url.get_secret_value().startswith(
+                ("postgresql://", "postgres://")
+            )
+        ):
+            raise ValueError(
+                "The postgres metadata provider requires DOCTER_INDEX_METADATA_URL "
+                "with a postgresql:// or postgres:// scheme."
+            )
+        return self
 
     @field_validator("data_dir", "frontend_dist_dir", mode="after")
     @classmethod
@@ -118,10 +133,13 @@ class Settings(BaseSettings):
     @property
     def mcp_env(self) -> dict[str, str]:
         """Additional environment variables explicitly forwarded to the MCP process."""
-        return {
+        env: dict[str, str] = {
             "DOCTER_INDEX_METADATA_PROVIDER": self.index_metadata_provider,
             "DOCTER_INDEX_VECTOR_PROVIDER": self.index_vector_provider,
         }
+        if self.index_metadata_provider == "postgres" and self.index_metadata_url is not None:
+            env["DOCTER_INDEX_METADATA_URL"] = self.index_metadata_url.get_secret_value()
+        return env
 
     @property
     def db_path(self) -> Path:

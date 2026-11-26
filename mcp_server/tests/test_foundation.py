@@ -106,6 +106,17 @@ def test_config_rejects_unsupported_index_providers(variable: str, value: str) -
         Config.from_env({variable: value})
 
 
+def test_postgres_metadata_config_does_not_fall_back_to_app_sql() -> None:
+    with pytest.raises(ValueError, match="requires DOCTER_INDEX_METADATA_URL") as caught:
+        Config.from_env(
+            {
+                "DOCTER_INDEX_METADATA_PROVIDER": "postgres",
+                "DOCTER_DATABASE_URL": "postgresql+psycopg://user:app-password@localhost/app",
+            }
+        )
+    assert "app-password" not in str(caught.value)
+
+
 async def test_info_and_contract_schemas(repo: Path) -> None:
     async with connected(repo, Config(allow_exec=True)) as session:
         discovered = (await session.list_tools()).tools

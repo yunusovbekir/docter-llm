@@ -9,7 +9,10 @@ from contextlib import closing
 from dataclasses import replace
 from itertools import pairwise
 from pathlib import Path
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
+from uuid import uuid4
 
+import anyio
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -29,7 +32,7 @@ from docter_contract import (
 from docter_mcp.config import Config
 from docter_mcp.indexing import service
 from docter_mcp.indexing.chunks import doc_chunks
-from docter_mcp.indexing.metadata import IndexGeneration, create_index_metadata
+from docter_mcp.indexing.metadata import IndexGeneration, IndexMetadata, create_index_metadata
 from docter_mcp.indexing.service import Embedder, get_symbol, index_repo, search_code
 from docter_mcp.indexing.store import IndexStore
 from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk, create_vector_store
@@ -375,6 +378,152 @@ def test_factories_reject_unsupported_providers_without_creating_storage(tmp_pat
     with pytest.raises(ValueError, match="Unsupported vector provider"):
         create_vector_store("sqlite", tmp_path / "vectors")
     assert not list(tmp_path.iterdir())
+
+
+@pytest.fixture
+def postgres_metadata_url() -> Iterator[str]:
+    url = os.getenv("DOCTER_TEST_INDEX_POSTGRES_URL")
+    if not url:
+        pytest.skip("set DOCTER_TEST_INDEX_POSTGRES_URL to a disposable PostgreSQL database")
+    import psycopg
+    from psycopg import sql
+
+    schema = f"docter_index_test_{uuid4().hex}"
+    with psycopg.connect(url, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            parts = urlsplit(url)
+            params = dict(parse_qsl(parts.query))
+            params["options"] = f"-c search_path={schema}"
+            yield urlunsplit(parts._replace(query=urlencode(params, quote_via=quote)))
+        finally:
+            conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+def test_postgres_metadata_lookup_snapshot_and_rollback(
+    postgres_metadata_url: str, tmp_path: Path
+) -> None:
+    import psycopg
+
+    def open_metadata(key: str, *, create: bool = False) -> closing[IndexMetadata]:
+        return closing(
+            create_index_metadata(
+                "postgres",
+                tmp_path / "unused.sqlite3",
+                url=postgres_metadata_url,
+                index_key=key,
+                create=create,
+            )
+        )
+
+    parser = PythonParser()
+    symbols = [
+        symbol.model_copy(update={"qualname": name})
+        for file, name in [
+            ("z.py", "Run"),
+            ("a.py", "Run"),
+            ("b.py", "run_more"),
+            ("c.py", "runner"),
+            ("d.py", "run%"),
+            ("e.py", "Run.\u00c9"),
+        ]
+        for symbol in parser.parse(file, "def run(): pass\n").symbols
+        if symbol.kind is SymbolKind.FUNCTION
+    ]
+    old = IndexGeneration("chunks_old", "model", "1")
+    new = IndexGeneration("chunks_new", "model", "1")
+    with open_metadata("repo") as missing:
+        assert missing.active_generation is None
+        assert missing.file_hashes() == {}
+
+    with (
+        open_metadata("repo", create=True) as writer,
+        open_metadata("other", create=True) as other,
+        closing(create_index_metadata("sqlite", tmp_path / "reference.sqlite3")) as reference,
+    ):
+        hashes = {"a.py": "old"}
+        writer.publish(old, hashes, symbols)
+        other.publish(old, {"other.py": "untouched"}, [])
+        reference.publish(old, hashes, symbols)
+        with psycopg.connect(postgres_metadata_url) as conn:
+            conn.execute("ALTER TABLE docter_index_manifest ADD CHECK (generation <> 'rejected')")
+        with open_metadata("repo") as reader:
+            assert reader.active_generation == old
+            assert reader.symbol_file("Run") == reference.symbol_file("Run") == "a.py"
+            assert reader.symbol_file("run") is None
+            assert reader.symbol_names() == reference.symbol_names()
+            assert reader.symbols_for_files({"a.py"}) == reference.symbols_for_files({"a.py"})
+            for query, kind, limit in [
+                ("run", None, 20),
+                ("run", SymbolKind.FUNCTION, 2),
+                ("run", SymbolKind.CLASS, 20),
+                ("%", None, 20),
+                ("_", None, 20),
+                ("\u00c9", None, 20),
+                ("\u00e9", None, 20),
+            ]:
+                actual = reader.lexical_candidates(query, kind, limit)
+                expected = reference.lexical_candidates(query, kind, limit)
+                # SQLite leaves ties among identical qualnames unspecified.
+                assert set(actual) == set(expected)
+                assert [item.partition(":")[2] for item in actual] == [
+                    item.partition(":")[2] for item in expected
+                ]
+            with pytest.raises(RuntimeError, match="CheckViolation"):
+                writer.publish(IndexGeneration("rejected", "model", "1"), {"bad.py": "bad"}, [])
+            with open_metadata("repo") as after_failure:
+                assert after_failure.active_generation == old
+                assert after_failure.file_hashes() == hashes
+                assert after_failure.symbol_names() == reference.symbol_names()
+            writer.publish(new, {"b.py": "new"}, [])
+            assert reader.active_generation == old
+            assert reader.file_hashes() == hashes
+            assert reader.symbol_file("Run") == "a.py"
+
+        assert writer.active_generation == new
+        assert writer.file_hashes() == {"b.py": "new"}
+        assert writer.symbol_names() == set()
+        assert other.file_hashes() == {"other.py": "untouched"}
+
+
+async def test_postgres_metadata_with_local_lancedb(
+    postgres_metadata_url: str, tmp_path: Path, embeddings: list[list[str]]
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    await anyio.run_process(["git", "init", "-q", str(repo)])
+    source = repo / "example.py"
+    source.write_text("def greet():\n    return 'hello'\n", encoding="utf-8")
+    (repo / "retained.py").write_text("def retained(): pass\n", encoding="utf-8")
+    config = Config.from_env(
+        {
+            "DOCTER_INDEX_METADATA_PROVIDER": "postgres",
+            "DOCTER_INDEX_METADATA_URL": postgres_metadata_url,
+            "DOCTER_INDEX_DIR": str(tmp_path / "index"),
+        }
+    )
+    request = IndexRepoInput(repo=str(repo))
+    query = SearchCodeInput(repo=str(repo), query="greet", kind=SymbolKind.FUNCTION)
+    with pytest.raises(ToolError, match="NOT_INDEXED"):
+        search_code(query, config)
+
+    assert (await index_repo(request, config)).files_indexed == 2
+    assert search_code(query, config).results[0].qualname == "example.greet"
+    symbol = GetSymbolInput(repo=str(repo), qualname="example.greet")
+    assert "hello" in get_symbol(symbol, config).source
+
+    source.write_text("def greet():\n    return 'goodbye'\n", encoding="utf-8")
+    assert (await index_repo(request, config)).files_indexed == 1
+    assert len(embeddings) == 2
+    assert "goodbye" in search_code(query, config).results[0].snippet
+    assert "goodbye" in get_symbol(symbol, config).source
+    retained = GetSymbolInput(repo=str(repo), qualname="retained.retained")
+    assert get_symbol(retained, config).qualname == retained.qualname
+    with IndexStore(Sandbox(repo), config) as store:
+        assert not (store.path / "symbols.sqlite3").exists()
+        assert (store.path / "vectors").is_dir()
+    with pytest.raises(ToolError, match="NOT_INDEXED"):
+        search_code(query, replace(config, index_dir=tmp_path / "other-index"))
 
 
 def test_lance_scores_literal_candidate_ids(tmp_path: Path) -> None:

@@ -29,7 +29,10 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0" },
     { name = "types-unidiff", specifier = ">=0.7.0.20260727" },
 ]
-postgres = [{ name = "docter", extras = ["postgres"], editable = "backend" }]
+postgres = [
+    { name = "docter", extras = ["postgres"], editable = "backend" },
+    { name = "docter-mcp", extras = ["postgres"], editable = "mcp_server" },
+]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -749,6 +752,11 @@ dependencies = [
     { name = "pyyaml" },
 ]
 
+[package.optional-dependencies]
+postgres = [
+    { name = "psycopg", extra = ["binary"] },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "docstring-parser", specifier = ">=0.18.0" },
@@ -757,9 +765,11 @@ requires-dist = [
     { name = "lancedb", specifier = ">=0.25" },
     { name = "mcp", specifier = ">=2.3.0" },
     { name = "pathspec", specifier = ">=0.12" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.14.3" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
+provides-extras = ["postgres"]
 
 [[package]]
 name = "fastapi"

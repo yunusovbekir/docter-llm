@@ -43,8 +43,12 @@ init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
 
+[[tool.mypy.overrides]]
+module = "psycopg.*"
+ignore_missing_imports = true
+
 [dependency-groups]
-postgres = ["docter[postgres]"]
+postgres = ["docter[postgres]", "docter-mcp[postgres]"]
 dev = [
     "alembic>=1.17.0",
     "docter-contract",
