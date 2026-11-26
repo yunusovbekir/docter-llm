@@ -1,6 +1,7 @@
 import shlex
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
@@ -40,11 +41,24 @@ async def test_mcp_manager_is_injected_and_closed_on_shutdown(
     frontend_dist_dir: Path,
     stub_mcp_command: list[str],
     clean_log_handlers: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("DOCTER_DATABASE_URL", f"sqlite+aiosqlite:///{data_dir / 'app.db'}")
+    monkeypatch.setenv("DOCTER_APP_ONLY_TEST_SETTING", "not for the MCP process")
+    interpreter, stub = stub_mcp_command
+    check_env_then_run_stub = (
+        "import os, runpy, sys\n"
+        "assert os.environ['DOCTER_INDEX_METADATA_PROVIDER'] == 'sqlite'\n"
+        "assert os.environ['DOCTER_INDEX_VECTOR_PROVIDER'] == 'lancedb'\n"
+        "assert 'DOCTER_DATABASE_URL' not in os.environ\n"
+        "assert 'DOCTER_APP_ONLY_TEST_SETTING' not in os.environ\n"
+        "sys.argv = sys.argv[1:]\n"
+        "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+    )
     settings = Settings(
         data_dir=data_dir,
         frontend_dist_dir=frontend_dist_dir,
-        mcp_command=shlex.join(stub_mcp_command),
+        mcp_command=shlex.join([interpreter, "-c", check_env_then_run_stub, stub]),
     )
     app: FastAPI = create_app(settings)
 

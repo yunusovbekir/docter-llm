@@ -39,11 +39,26 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     allowed_roots: tuple[Path, ...] = ()
     allow_exec: bool = False
+    index_metadata_provider: str = "sqlite"
+    index_vector_provider: str = "lancedb"
+
+    def __post_init__(self) -> None:
+        if self.index_metadata_provider != "sqlite":
+            raise ValueError(
+                f"Unsupported DOCTER_INDEX_METADATA_PROVIDER {self.index_metadata_provider!r}; "
+                "expected 'sqlite'."
+            )
+        if self.index_vector_provider != "lancedb":
+            raise ValueError(
+                f"Unsupported DOCTER_INDEX_VECTOR_PROVIDER {self.index_vector_provider!r}; "
+                "expected 'lancedb'."
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Config":
-        """Load environment settings, rejecting malformed booleans and roots."""
+        """Load environment settings and reject invalid values."""
         values = os.environ if env is None else env
+        defaults = cls()
         flag = (
             values.get("DOCSMITH_ALLOW_EXEC", values.get("DOCTER_ALLOW_EXEC", "false"))
             .strip()
@@ -60,12 +75,18 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
                     raise ValueError("DOCTER_ALLOWED_ROOTS must contain absolute paths")
                 roots.append(root.resolve())
         index = values.get("DOCTER_INDEX_DIR", values.get("DOCSMITH_INDEX_DIR", "")).strip()
-        model = values.get("DOCTER_EMBEDDING_MODEL", cls().embedding_model).strip()
+        model = values.get("DOCTER_EMBEDDING_MODEL", defaults.embedding_model).strip()
         if not model:
             raise ValueError("DOCTER_EMBEDDING_MODEL must not be empty")
         return cls(
-            index_dir=Path(index).expanduser().resolve() if index else cls().index_dir,
+            index_dir=Path(index).expanduser().resolve() if index else defaults.index_dir,
             embedding_model=model,
             allowed_roots=tuple(roots),
             allow_exec=flag in {"true", "1"},
+            index_metadata_provider=values.get(
+                "DOCTER_INDEX_METADATA_PROVIDER", defaults.index_metadata_provider
+            ),
+            index_vector_provider=values.get(
+                "DOCTER_INDEX_VECTOR_PROVIDER", defaults.index_vector_provider
+            ),
         )

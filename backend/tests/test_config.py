@@ -83,6 +83,19 @@ def test_mcp_command_rejects_invalid_values(data_dir: Path, command: str) -> Non
         Settings(mcp_command=command)
 
 
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [("index_metadata_provider", "lancedb"), ("index_vector_provider", "sqlite")],
+)
+def test_rejects_unsupported_index_providers(
+    monkeypatch: pytest.MonkeyPatch, setting: str, value: str
+) -> None:
+    monkeypatch.setenv(f"DOCTER_{setting.upper()}", value)
+
+    with pytest.raises(ValidationError, match=setting):
+        Settings()
+
+
 def test_fixed_configuration_is_not_loaded_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

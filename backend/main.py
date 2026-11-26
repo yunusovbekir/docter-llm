@@ -58,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             mcp = MCPManager(
                 resolved.mcp_command_args,
+                env=resolved.mcp_env,
                 errlog_path=resolved.logs_dir / resolved.MCP_SERVER_LOG_NAME,
                 sampling_callback=SamplingHandler(gateway_factory),
             )

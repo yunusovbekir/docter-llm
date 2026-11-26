@@ -69,6 +69,8 @@ def test_config_defaults_and_overrides(tmp_path: Path) -> None:
     assert defaults.index_dir == Path.home() / ".docter" / "index"
     assert defaults.allowed_roots == ()
     assert defaults.allow_exec is False
+    assert defaults.index_metadata_provider == "sqlite"
+    assert defaults.index_vector_provider == "lancedb"
     config = Config.from_env(
         {
             "DOCTER_INDEX_DIR": str(tmp_path / "index"),
@@ -93,6 +95,15 @@ def test_config_defaults_and_overrides(tmp_path: Path) -> None:
 def test_config_rejects_bad_settings(values: dict[str, str]) -> None:
     with pytest.raises(ValueError):
         Config.from_env(values)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [("DOCTER_INDEX_METADATA_PROVIDER", "lancedb"), ("DOCTER_INDEX_VECTOR_PROVIDER", "sqlite")],
+)
+def test_config_rejects_unsupported_index_providers(variable: str, value: str) -> None:
+    with pytest.raises(ValueError, match=variable):
+        Config.from_env({variable: value})
 
 
 async def test_info_and_contract_schemas(repo: Path) -> None:

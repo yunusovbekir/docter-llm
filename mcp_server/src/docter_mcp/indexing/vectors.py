@@ -43,6 +43,13 @@ class VectorStore(Protocol):
     def discard(self, generation: str) -> None: ...
 
 
+def create_vector_store(provider: str, path: Path) -> VectorStore:
+    """Create the selected vector store."""
+    if provider == "lancedb":
+        return LanceVectorStore(path)
+    raise ValueError(f"Unsupported vector provider {provider!r}; expected 'lancedb'.")
+
+
 def _hit(row: dict[str, Any], score: float) -> SearchHit:
     return SearchHit(
         file=row["file"],
