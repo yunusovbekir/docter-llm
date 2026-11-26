@@ -42,6 +42,7 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
     index_metadata_provider: str = "sqlite"
     index_vector_provider: str = "lancedb"
     index_metadata_url: str | None = field(default=None, repr=False)
+    index_vector_url: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.index_metadata_provider not in {"sqlite", "postgres"}:
@@ -57,10 +58,18 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
                 "The postgres metadata provider requires DOCTER_INDEX_METADATA_URL "
                 "with a postgresql:// or postgres:// scheme."
             )
-        if self.index_vector_provider != "lancedb":
+        if self.index_vector_provider not in {"lancedb", "pgvector"}:
             raise ValueError(
                 f"Unsupported DOCTER_INDEX_VECTOR_PROVIDER {self.index_vector_provider!r}; "
-                "expected 'lancedb'."
+                "expected 'lancedb' or 'pgvector'."
+            )
+        if self.index_vector_provider == "pgvector" and (
+            not self.index_vector_url
+            or not self.index_vector_url.startswith(("postgresql://", "postgres://"))
+        ):
+            raise ValueError(
+                "The pgvector provider requires DOCTER_INDEX_VECTOR_URL "
+                "with a postgresql:// or postgres:// scheme."
             )
 
     @classmethod
@@ -99,4 +108,5 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
                 "DOCTER_INDEX_VECTOR_PROVIDER", defaults.index_vector_provider
             ),
             index_metadata_url=values.get("DOCTER_INDEX_METADATA_URL"),
+            index_vector_url=values.get("DOCTER_INDEX_VECTOR_URL"),
         )

@@ -1,4 +1,4 @@
-"""Vector operations used by indexing and their local LanceDB implementation."""
+"""Vector operations used by indexing and the local LanceDB implementation."""
 
 from collections.abc import Sequence, Set
 from dataclasses import dataclass
@@ -43,11 +43,23 @@ class VectorStore(Protocol):
     def discard(self, generation: str) -> None: ...
 
 
-def create_vector_store(provider: str, path: Path) -> VectorStore:
+def create_vector_store(provider: str, path: Path, *, url: str | None = None) -> VectorStore:
     """Create the selected vector store."""
     if provider == "lancedb":
         return LanceVectorStore(path)
-    raise ValueError(f"Unsupported vector provider {provider!r}; expected 'lancedb'.")
+    if provider == "pgvector":
+        if not url:
+            raise ValueError("The pgvector provider requires DOCTER_INDEX_VECTOR_URL.")
+        try:
+            from docter_mcp.indexing.pgvector import PgVectorStore
+        except ModuleNotFoundError as exc:
+            if exc.name != "psycopg":
+                raise
+            raise RuntimeError(
+                "pgvector requires the optional psycopg driver. Run `uv sync --group postgres`."
+            ) from None
+        return PgVectorStore(url)
+    raise ValueError(f"Unsupported vector provider {provider!r}; expected 'lancedb' or 'pgvector'.")
 
 
 def _hit(row: dict[str, Any], score: float) -> SearchHit:

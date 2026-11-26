@@ -61,7 +61,8 @@ fields. Define configuration on this class, not as module-level variables in con
 | `DOCTER_MCP_COMMAND`       | `uv run docter-mcp`            | Command that starts the Docter MCP server (shell-style quoting) |
 | `DOCTER_INDEX_METADATA_PROVIDER` | `sqlite` | MCP index metadata provider: `sqlite` or `postgres` |
 | `DOCTER_INDEX_METADATA_URL` | unset | Native PostgreSQL URL, required only when MCP metadata uses `postgres` |
-| `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | MCP index vector provider; only `lancedb` is supported |
+| `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | MCP index vector provider: `lancedb` or `pgvector` |
+| `DOCTER_INDEX_VECTOR_URL` | unset | Native PostgreSQL URL, required only when MCP vectors use `pgvector` |
 
 ### Data directory layout
 
@@ -111,6 +112,33 @@ To run the opt-in integration tests, set `DOCTER_TEST_POSTGRES_URL` to a disposa
 PostgreSQL database using the same URL scheme, then run
 `uv run --group postgres pytest backend/tests/test_postgres.py`. The test role
 needs permission to create and drop its temporary schemas.
+
+### Sharing PostgreSQL with MCP
+
+Once the database exists, ask its administrator to enable
+`CREATE EXTENSION IF NOT EXISTS vector;` in the database that will hold the vectors.
+To put app state, index metadata, and vectors in the same PostgreSQL database:
+
+```bash
+uv sync --locked --group postgres
+export DOCTER_DATABASE_URL='postgresql+psycopg://docter@127.0.0.1:5432/docter'
+export DOCTER_INDEX_METADATA_PROVIDER=postgres
+export DOCTER_INDEX_METADATA_URL='postgresql://docter@127.0.0.1:5432/docter'
+export DOCTER_INDEX_VECTOR_PROVIDER=pgvector
+export DOCTER_INDEX_VECTOR_URL='postgresql://docter@127.0.0.1:5432/docter'
+export DOCTER_MCP_COMMAND='uv run --locked --group postgres docter-mcp'
+uv run --locked --group postgres alembic upgrade head
+uv run --locked --group postgres docter
+```
+
+To use separate databases, point the three URLs at different database names or
+hosts (and use different roles if desired). The app URL uses `postgresql+psycopg://`;
+both MCP URLs use `postgresql://` or `postgres://`. You can also leave any store
+at its local default. For example, select only `pgvector` and set only
+`DOCTER_INDEX_VECTOR_URL` to keep both app state and metadata on SQLite. The
+URLs are never inferred from one another. The
+[MCP PostgreSQL index guide](../mcp_server/README.md#postgresql-index-stores)
+details permissions, reindexing, and what data each remote store receives.
 
 ### SQL schema migrations
 
@@ -564,11 +592,9 @@ the lock. These locks are process-local: use a single backend worker.
 
 `MCPManager` (`mcp_client/manager.py`) runs the Docter MCP server as a subprocess, started with `DOCTER_MCP_COMMAND`, and talks to it over stdio with the official `mcp` SDK. Inject it with `MCPManagerDep` from `api/deps.py`.
 
-The backend passes the two index provider selectors and, when the metadata provider
-is `postgres`, `DOCTER_INDEX_METADATA_URL` to MCP. It never forwards
-`DOCTER_DATABASE_URL`, which configures only the application database. See
-[PostgreSQL index metadata](../mcp_server/README.md#postgresql-index-metadata)
-for setup. LanceDB vectors remain local.
+The backend passes the two index provider selectors and the URL for each enabled
+PostgreSQL index store to MCP. It never forwards `DOCTER_DATABASE_URL`, which
+configures only the application database.
 
 - **Lifecycle:** one `ClientSession`, opened on first use and kept open by a background task that holds the transport in an `AsyncExitStack`. It is closed at app shutdown. The server's stderr is appended to `logs/mcp-server.log`.
 - **`list_tools()`:** returns the server's tools. The result is cached until the session is closed or restarted.

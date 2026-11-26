@@ -32,7 +32,12 @@ from docter_contract import (
 from docter_mcp.config import Config
 from docter_mcp.indexing import service
 from docter_mcp.indexing.chunks import doc_chunks
-from docter_mcp.indexing.metadata import IndexGeneration, IndexMetadata, create_index_metadata
+from docter_mcp.indexing.metadata import (
+    IndexGeneration,
+    IndexMetadata,
+    MetadataPublishUncertainError,
+    create_index_metadata,
+)
 from docter_mcp.indexing.service import Embedder, get_symbol, index_repo, search_code
 from docter_mcp.indexing.store import IndexStore
 from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk, create_vector_store
@@ -382,9 +387,18 @@ def test_factories_reject_unsupported_providers_without_creating_storage(tmp_pat
 
 @pytest.fixture
 def postgres_metadata_url() -> Iterator[str]:
-    url = os.getenv("DOCTER_TEST_INDEX_POSTGRES_URL")
+    yield from postgres_test_url("DOCTER_TEST_INDEX_POSTGRES_URL")
+
+
+@pytest.fixture
+def pgvector_url() -> Iterator[str]:
+    yield from postgres_test_url("DOCTER_TEST_PGVECTOR_URL", vector=True)
+
+
+def postgres_test_url(setting: str, *, vector: bool = False) -> Iterator[str]:
+    url = os.getenv(setting)
     if not url:
-        pytest.skip("set DOCTER_TEST_INDEX_POSTGRES_URL to a disposable PostgreSQL database")
+        pytest.skip(f"set {setting} to a disposable PostgreSQL database")
     import psycopg
     from psycopg import sql
 
@@ -394,7 +408,16 @@ def postgres_metadata_url() -> Iterator[str]:
         try:
             parts = urlsplit(url)
             params = dict(parse_qsl(parts.query))
-            params["options"] = f"-c search_path={schema}"
+            search_path = schema
+            if vector:
+                row = conn.execute(
+                    """SELECT nspname FROM pg_extension JOIN pg_namespace
+                       ON extnamespace = pg_namespace.oid WHERE extname = 'vector'"""
+                ).fetchone()
+                if row is None:
+                    pytest.fail("Enable the vector extension in DOCTER_TEST_PGVECTOR_URL first")
+                search_path += f",{sql.Identifier(row[0]).as_string(conn)}"
+            params["options"] = f"-c search_path={search_path}"
             yield urlunsplit(parts._replace(query=urlencode(params, quote_via=quote)))
         finally:
             conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
@@ -524,6 +547,152 @@ async def test_postgres_metadata_with_local_lancedb(
         assert (store.path / "vectors").is_dir()
     with pytest.raises(ToolError, match="NOT_INDEXED"):
         search_code(query, replace(config, index_dir=tmp_path / "other-index"))
+
+
+def test_pgvector_settings_do_not_fall_back_to_other_urls(tmp_path: Path) -> None:
+    env = {
+        "DOCTER_INDEX_VECTOR_PROVIDER": "pgvector",
+        "DOCTER_DATABASE_URL": "postgresql+psycopg://localhost/app",
+        "DOCTER_INDEX_METADATA_URL": "postgresql://localhost/metadata",
+    }
+    with pytest.raises(ValueError, match="requires DOCTER_INDEX_VECTOR_URL"):
+        Config.from_env(env)
+    url = "postgresql://localhost/vectors"
+    config = Config.from_env({**env, "DOCTER_INDEX_VECTOR_URL": url})
+    assert config.index_vector_url == url
+    assert url not in repr(config)
+    assert config.index_metadata_provider == "sqlite"
+    with pytest.raises(ValueError, match="requires DOCTER_INDEX_VECTOR_URL"):
+        create_vector_store("pgvector", tmp_path / "vectors")
+
+
+def test_pgvector_cosine_filters_reuse_and_dimensions(pgvector_url: str, tmp_path: Path) -> None:
+    store = create_vector_store("pgvector", tmp_path / "unused", url=pgvector_url)
+    doc = doc_chunks("it's.md", "# Title\ntext\n")[0]
+    symbol = doc.model_copy(update={"kind": SymbolKind.FUNCTION, "file": "f.py", "qualname": "f"})
+    store.stage(
+        "active",
+        [
+            VectorChunk("parallel", symbol, [3.0, 0.0]),
+            VectorChunk("it's.md:1", doc, [1.0, 1.0]),
+            VectorChunk("opposite", doc, [-1.0, 0.0]),
+        ],
+    )
+    store.stage("other", [VectorChunk("parallel", symbol, [0.0, 0.0, 1.0])])
+    hits = store.search("active", [2.0, 0.0], None, 3)
+    assert [hit.id for hit in hits] == ["parallel", "it's.md:1", "opposite"]
+    assert [hit.hit.score for hit in hits] == pytest.approx([1, 2**-0.5, -1])
+    assert store.search("active", [2.0, 0.0], SymbolKind.MODULE, 1) == hits[1:2]
+    assert store.score_ids("active", [2.0, 0.0], ["it's.md:1", "missing"]) == hits[1:2]
+    assert not store.score_ids("active", [2.0, 0.0], [])
+    assert store.reuse("active", {"f.py"}) == [VectorChunk("parallel", symbol, [3.0, 0.0])]
+    assert not store.reuse("active", set())
+    with pytest.raises(ValueError, match="expected 2, got 3"):
+        store.search("active", [1.0, 0.0, 0.0], None, 1)
+    with pytest.raises(ValueError, match="expected 2, got 1"):
+        store.stage(
+            "mixed", [VectorChunk("first", doc, [1.0, 0.0]), VectorChunk("second", doc, [1.0])]
+        )
+    with pytest.raises(RuntimeError, match="generation is missing"):
+        store.reuse("mixed", {"it's.md"})
+    with pytest.raises(RuntimeError, match="UniqueViolation"):
+        store.stage(
+            "duplicate",
+            [
+                VectorChunk("same", doc, [1.0, 0.0]),
+                VectorChunk("same", doc, [0.0, 1.0]),
+            ],
+        )
+    with pytest.raises(RuntimeError, match="generation is missing"):
+        store.reuse("duplicate", {"it's.md"})
+    with pytest.raises(ValueError, match="finite, nonzero"):
+        store.search("active", [0.0, 0.0], None, 1)
+    store.discard("other")
+    assert store.search("active", [2.0, 0.0], None, 3) == hits
+
+
+def test_pgvector_requires_visible_extension(postgres_metadata_url: str, tmp_path: Path) -> None:
+    # This fixture's isolated search_path excludes the extension schema, even on a pgvector DB.
+    store = create_vector_store("pgvector", tmp_path / "unused", url=postgres_metadata_url)
+    with pytest.raises(RuntimeError, match="requires the PostgreSQL vector extension"):
+        store.stage("", [])
+
+
+def test_pgvector_redacts_connection_errors(tmp_path: Path) -> None:
+    pytest.importorskip("psycopg")
+    secret = "fake-credential-in-invalid-option"
+    url = f"postgresql://localhost/db?{secret}=unused"
+    store = create_vector_store("pgvector", tmp_path / "unused", url=url)
+    with pytest.raises(RuntimeError, match="check DOCTER_INDEX_VECTOR_URL") as caught:
+        store.stage("", [])
+    assert secret not in str(caught.value)
+
+
+@pytest.mark.parametrize("metadata_provider", ["sqlite", "postgres"])
+@pytest.mark.parametrize("uncertain", [False, True])
+async def test_pgvector_failed_publication_preserves_active_search(
+    pgvector_url: str,
+    tmp_path: Path,
+    embeddings: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    metadata_provider: str,
+    uncertain: bool,
+) -> None:
+    import psycopg
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    await anyio.run_process(["git", "init", "-q", str(repo)])
+    source = repo / "example.py"
+    source.write_text("def greet(): return 'hello'\n", encoding="utf-8")
+    config = Config(
+        index_dir=tmp_path / "index",
+        index_metadata_provider=metadata_provider,
+        index_metadata_url=pgvector_url if metadata_provider == "postgres" else None,
+        index_vector_provider="pgvector",
+        index_vector_url=pgvector_url,
+    )
+    request = IndexRepoInput(repo=str(repo))
+    query = SearchCodeInput(repo=str(repo), query="greet", kind=SymbolKind.FUNCTION)
+    await index_repo(request, config)
+    retained = repo / "retained.py"
+    retained.write_text("def retained(): pass\n", encoding="utf-8")
+    assert (await index_repo(request, config)).files_indexed == 1
+    assert len(embeddings[-1]) == 2  # Only the new module and its function were embedded.
+    before = search_code(query, config)
+    assert "hello" in before.results[0].snippet
+    with IndexStore(Sandbox(repo), config) as store:
+        assert not (store.path / "vectors").exists()
+        metadata_type = type(store.metadata)
+
+    with psycopg.connect(pgvector_url) as db:
+        generations = set(db.execute("SELECT generation FROM docter_vector_generations"))
+
+    def fail_publish(self: IndexMetadata, generation: IndexGeneration, *args: object) -> None:
+        with psycopg.connect(pgvector_url) as db:
+            assert (
+                db.execute(
+                    "SELECT 1 FROM docter_vector_chunks WHERE generation = %s", (generation.name,)
+                ).fetchone()
+                is not None
+            )
+        if uncertain:
+            raise MetadataPublishUncertainError("commit could not be confirmed")
+        raise RuntimeError("publication rejected")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(metadata_type, "publish", fail_publish)
+        source.write_text("def greet(): return 'goodbye'\n", encoding="utf-8")
+        message = "commit could not be confirmed" if uncertain else "publication rejected"
+        with pytest.raises(RuntimeError, match=message):
+            await index_repo(request, config)
+    assert search_code(query, config) == before
+    with psycopg.connect(pgvector_url) as db:
+        after = set(db.execute("SELECT generation FROM docter_vector_generations"))
+        assert generations <= after
+        assert len(after - generations) == int(uncertain)
+    assert (await index_repo(request, config)).files_indexed == 1
+    assert "goodbye" in search_code(query, config).results[0].snippet
 
 
 def test_lance_scores_literal_candidate_ids(tmp_path: Path) -> None:

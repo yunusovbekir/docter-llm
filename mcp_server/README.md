@@ -13,7 +13,7 @@ flowchart TB
     Client["MCP client"]
     Contract["Shared tool contract"]
     Repo["Target Git checkout"]
-    Store[("Local index<br/>SQLite metadata and LanceDB vectors")]
+    Store[("Index stores<br/>Local by default, optional PostgreSQL")]
 
     subgraph Server["Docter MCP server"]
         Entry["MCPServer<br/>server.py: registers tools, resources, and prompts"]
@@ -51,7 +51,7 @@ flowchart TB
 ```
 
 Tool calls name their repository explicitly; resources and prompts use the
-repository selected at server startup. Search and symbol lookup use a local
+repository selected at server startup. Search and symbol lookup use the configured
 index, while coverage checks analyze the current files without requiring an
 index. Translation asks the MCP client to generate text through sampling, then
 returns a proposed diff. Applying that diff is the caller's responsibility.
@@ -120,7 +120,8 @@ The shared contract's immutable protocol definitions remain unchanged.
 | `DOCSMITH_INDEX_DIR` | unset | Compatibility alias for `DOCTER_INDEX_DIR`; `DOCTER_INDEX_DIR` takes precedence. |
 | `DOCTER_INDEX_METADATA_PROVIDER` | `sqlite` | Index metadata provider: `sqlite` or `postgres`. |
 | `DOCTER_INDEX_METADATA_URL` | unset | Native PostgreSQL URL (`postgresql://` or `postgres://`); required for `postgres`, ignored by SQLite. |
-| `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | Index vector provider; only `lancedb` is supported. |
+| `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | Index vector provider: `lancedb` or `pgvector`. |
+| `DOCTER_INDEX_VECTOR_URL` | unset | Native PostgreSQL URL (`postgresql://` or `postgres://`); required for `pgvector`, ignored by LanceDB. |
 | `DOCTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model name; changing it triggers a complete re-index. |
 | `DOCTER_ALLOWED_ROOTS` | unset | Optional comma-separated absolute paths; repos must resolve within one. |
 | `DOCSMITH_ALLOW_EXEC` | `false` | Opt into executing trusted repository examples (`true`/`false` or `1`/`0`). |
@@ -130,11 +131,20 @@ The shared contract's immutable protocol definitions remain unchanged.
 
 Set `DOCTER_ALLOWED_ROOTS` to the smallest set of repositories the client should access.
 
+### PostgreSQL index stores
+
+Install the optional driver with `uv sync --locked --group postgres` (or install
+`docter-mcp[postgres]` separately). With the workspace install, launch standalone
+MCP using `uv run --locked --group postgres docter-mcp`. If launching from the
+backend or another MCP client, ensure its MCP command uses the same environment.
+The two index stores are independent of each other and of the app database.
+See [shared and separate database examples](../backend/README.md#sharing-postgresql-with-mcp)
+for connection settings. Use verified TLS and a password file or secret manager
+for remote PostgreSQL.
+
 ### PostgreSQL index metadata
 
-From the workspace, install the optional driver with `uv sync --group postgres`
-(or install `docter-mcp[postgres]` separately). Then set
-`DOCTER_INDEX_METADATA_PROVIDER=postgres` and
+Set `DOCTER_INDEX_METADATA_PROVIDER=postgres` and
 `DOCTER_INDEX_METADATA_URL=postgresql://docter@localhost/docter_index`.
 This URL is independent of `DOCTER_DATABASE_URL`, which is used only by the backend.
 On the first `index_repo` call, MCP creates its `docter_index_*` tables in the
@@ -144,15 +154,42 @@ databases. PostgreSQL stores a hashed index identifier, an active-generation
 manifest (including the embedding model name), repository-relative file paths and
 hashes, and serialized symbol metadata (including source snippets and docstrings).
 MCP also sends lexical search text, symbol names, and file filters to PostgreSQL
-for lookups. Vector embeddings, LanceDB files, and embedding model files remain local.
+for lookups. This setting does not change where vectors or model files are stored.
 
-Reindex when switching providers; existing SQLite indexes are not migrated.
 Each PostgreSQL index is scoped to its resolved local index path, so changing the
 checkout or `DOCTER_INDEX_DIR` requires reindexing.
 
 To run integration tests against a disposable database, set
 `DOCTER_TEST_INDEX_POSTGRES_URL` to a native PostgreSQL URL with permission to create
 and drop test schemas.
+
+### PostgreSQL vector search
+
+Enable `CREATE EXTENSION IF NOT EXISTS vector;` in the vector database before
+indexing. The extension's schema must be on the vector connection's `search_path`.
+Set `DOCTER_INDEX_VECTOR_PROVIDER=pgvector` and `DOCTER_INDEX_VECTOR_URL` to that
+database. MCP creates its own `docter_vector_*` tables on the first nonempty index;
+the role needs permission to create those tables and read/write their rows. The
+server validates the extension, requires consistent embedding dimensions within
+each generation (1–16,000), and checks query dimensions against that generation.
+Search uses exact cosine similarity, with filters applied before limiting results.
+
+A remote vector database receives embeddings, chunk IDs, repository-relative paths,
+symbol names and kinds, line ranges, and source/documentation snippets, as well as
+query embeddings and filter values. Embedding inference and the model cache stay
+local. If a configured store fails, MCP reports the error without falling back.
+
+After switching index providers or database destinations, run `index_repo` with
+`force: true`. Existing indexes are not copied. The metadata manifest switches
+only after a complete vector generation has been staged; a failed publication
+leaves the previous generation readable. Old published generations are retained.
+
+For live integration tests, set `DOCTER_TEST_PGVECTOR_URL` to a disposable PostgreSQL
+database with `vector` enabled and a role that can create and drop test schemas.
+Run `uv run --locked --group postgres pytest mcp_server/tests/test_indexing.py`.
+
+### Repository access and example execution
+
 `--repo` alone does not restrict tool calls, and an unset allowlist permits any accessible
 Git working tree. Path restrictions are not an OS-level sandbox. Run the server with only
 the filesystem access and credentials it needs, and review patches before applying them.
@@ -220,9 +257,8 @@ Files without headings contribute one chunk; empty documentation contributes non
 fastembed runs locally; its first use may download the configured model. Model files
 are cached under `<index_dir>/models`. SQLite stores file content hashes and symbol
 metadata in `<index_dir>/<sha1(canonical_repo_path)>/symbols.sqlite3`; LanceDB vectors
-live alongside it in `vectors/`. SQLite is the only implementation of the internal
-index metadata interface, and LanceDB is the only implementation of the vector
-store interface. Existing indexes need no migration. A refresh reuses
+live alongside it in `vectors/`. These are the defaults; either store can use
+PostgreSQL independently. Existing local indexes need no migration. A refresh reuses
 unchanged symbols and vectors, embeds only changed/new files, and removes deleted
 or newly ignored files from the active index.
 `force=true` reparses and re-embeds every eligible file. `files_indexed` counts processed
@@ -230,8 +266,8 @@ new/changed files (including syntax-invalid files), not deletions or unchanged f
 `symbols` and `chunks` are totals for the completed index.
 
 MCP progress notifications report scanning, embedding, and completion, with strictly
-increasing progress and a stable total. The new vectors are published with the SQLite
-manifest only after success, so a failed refresh leaves the previous index usable.
+increasing progress and a stable total. The metadata manifest is updated only after
+the new vectors are staged, so a failed refresh leaves the previous index usable.
 Immutable vector generations are retained so readers of an older generation can finish.
 
 `search_code` combines cosine vector similarity with additional exact/partial symbol-name

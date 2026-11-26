@@ -101,7 +101,7 @@ flowchart LR
 
 1. **Index a project.** The UI sends a request to start indexing. The backend
    returns `202 Accepted` and runs the job in the background. MCP reads the
-   checkout and builds the local index; the UI polls the backend for progress
+   checkout and builds the index; the UI polls the backend for progress
    and the final status.
 2. **Send a message.** The UI posts to the session's chat endpoint. The backend
    asks the model for a response and calls MCP tools as needed. It sends text,
@@ -132,8 +132,8 @@ The API docs are at http://127.0.0.1:8000/docs. Run a single backend worker: cha
 indexing jobs are process-local. Startup resets interrupted chat runs to `idle` and
 interrupted indexing jobs to `failed`, allowing them to be retried.
 
-To use PostgreSQL instead of the default local SQLite file, see
-[Application database](backend/README.md#application-database). For versioned
+To use PostgreSQL for app state, index metadata, or pgvector search, see
+[PostgreSQL configuration](backend/README.md#sharing-postgresql-with-mcp). For versioned
 upgrades and SQLite baselining, see
 [SQL schema migrations](backend/README.md#sql-schema-migrations).
 
