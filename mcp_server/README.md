@@ -118,7 +118,8 @@ The shared contract's immutable protocol definitions remain unchanged.
 |---|---|---|
 | `DOCTER_INDEX_DIR` | `~/.docter/index` | Persistent index and local embedding-model cache; must be outside the target repo. |
 | `DOCSMITH_INDEX_DIR` | unset | Compatibility alias for `DOCTER_INDEX_DIR`; `DOCTER_INDEX_DIR` takes precedence. |
-| `DOCTER_INDEX_METADATA_PROVIDER` | `sqlite` | Index metadata provider; only `sqlite` is supported. |
+| `DOCTER_INDEX_METADATA_PROVIDER` | `sqlite` | Index metadata provider: `sqlite` or `postgres`. |
+| `DOCTER_INDEX_METADATA_URL` | unset | Native PostgreSQL URL (`postgresql://` or `postgres://`); required for `postgres`, ignored by SQLite. |
 | `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | Index vector provider; only `lancedb` is supported. |
 | `DOCTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model name; changing it triggers a complete re-index. |
 | `DOCTER_ALLOWED_ROOTS` | unset | Optional comma-separated absolute paths; repos must resolve within one. |
@@ -128,6 +129,30 @@ The shared contract's immutable protocol definitions remain unchanged.
 ## Security notes
 
 Set `DOCTER_ALLOWED_ROOTS` to the smallest set of repositories the client should access.
+
+### PostgreSQL index metadata
+
+From the workspace, install the optional driver with `uv sync --group postgres`
+(or install `docter-mcp[postgres]` separately). Then set
+`DOCTER_INDEX_METADATA_PROVIDER=postgres` and
+`DOCTER_INDEX_METADATA_URL=postgresql://docter@localhost/docter_index`.
+This URL is independent of `DOCTER_DATABASE_URL`, which is used only by the backend.
+On the first `index_repo` call, MCP creates its `docter_index_*` tables in the
+configured database schema; the database must already exist and the role needs
+permission to create those tables. Use TLS with certificate verification for remote
+databases. PostgreSQL stores a hashed index identifier, an active-generation
+manifest (including the embedding model name), repository-relative file paths and
+hashes, and serialized symbol metadata (including source snippets and docstrings).
+MCP also sends lexical search text, symbol names, and file filters to PostgreSQL
+for lookups. Vector embeddings, LanceDB files, and embedding model files remain local.
+
+Reindex when switching providers; existing SQLite indexes are not migrated.
+Each PostgreSQL index is scoped to its resolved local index path, so changing the
+checkout or `DOCTER_INDEX_DIR` requires reindexing.
+
+To run integration tests against a disposable database, set
+`DOCTER_TEST_INDEX_POSTGRES_URL` to a native PostgreSQL URL with permission to create
+and drop test schemas.
 `--repo` alone does not restrict tool calls, and an unset allowlist permits any accessible
 Git working tree. Path restrictions are not an OS-level sandbox. Run the server with only
 the filesystem access and credentials it needs, and review patches before applying them.

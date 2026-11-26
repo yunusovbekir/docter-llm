@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar
 
@@ -41,12 +41,21 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
     allow_exec: bool = False
     index_metadata_provider: str = "sqlite"
     index_vector_provider: str = "lancedb"
+    index_metadata_url: str | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
-        if self.index_metadata_provider != "sqlite":
+        if self.index_metadata_provider not in {"sqlite", "postgres"}:
             raise ValueError(
                 f"Unsupported DOCTER_INDEX_METADATA_PROVIDER {self.index_metadata_provider!r}; "
-                "expected 'sqlite'."
+                "expected 'sqlite' or 'postgres'."
+            )
+        if self.index_metadata_provider == "postgres" and (
+            not self.index_metadata_url
+            or not self.index_metadata_url.startswith(("postgresql://", "postgres://"))
+        ):
+            raise ValueError(
+                "The postgres metadata provider requires DOCTER_INDEX_METADATA_URL "
+                "with a postgresql:// or postgres:// scheme."
             )
         if self.index_vector_provider != "lancedb":
             raise ValueError(
@@ -89,4 +98,5 @@ Keep examples concise and accurate. Do not invent behavior or reference missing 
             index_vector_provider=values.get(
                 "DOCTER_INDEX_VECTOR_PROVIDER", defaults.index_vector_provider
             ),
+            index_metadata_url=values.get("DOCTER_INDEX_METADATA_URL"),
         )

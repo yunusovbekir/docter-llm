@@ -96,6 +96,31 @@ def test_rejects_unsupported_index_providers(
         Settings()
 
 
+def test_postgres_metadata_url_is_separate_and_forwarded_only_for_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_url = "sqlite+aiosqlite:///app.db"
+    index_url = "postgresql://docter:test-index-password@localhost/index"
+    monkeypatch.setenv("DOCTER_DATABASE_URL", app_url)
+    monkeypatch.setenv("DOCTER_INDEX_METADATA_URL", index_url)
+    assert "DOCTER_INDEX_METADATA_URL" not in Settings().mcp_env
+
+    monkeypatch.setenv("DOCTER_INDEX_METADATA_PROVIDER", "postgres")
+    settings = Settings()
+    assert settings.database_url == app_url
+    assert settings.mcp_env == {
+        "DOCTER_INDEX_METADATA_PROVIDER": "postgres",
+        "DOCTER_INDEX_VECTOR_PROVIDER": "lancedb",
+        "DOCTER_INDEX_METADATA_URL": index_url,
+    }
+    assert "test-index-password" not in repr(settings)
+    assert "index_metadata_url" not in settings.model_dump()
+
+    monkeypatch.delenv("DOCTER_INDEX_METADATA_URL")
+    with pytest.raises(ValidationError, match="requires DOCTER_INDEX_METADATA_URL"):
+        Settings()
+
+
 def test_fixed_configuration_is_not_loaded_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

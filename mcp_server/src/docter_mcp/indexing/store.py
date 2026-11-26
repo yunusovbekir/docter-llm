@@ -6,7 +6,11 @@ from uuid import uuid4
 
 from docter_contract import ErrorCode, GetSymbolOutput
 from docter_mcp.config import Config
-from docter_mcp.indexing.metadata import IndexGeneration, create_index_metadata
+from docter_mcp.indexing.metadata import (
+    IndexGeneration,
+    MetadataPublishUncertainError,
+    create_index_metadata,
+)
 from docter_mcp.indexing.vectors import VectorChunk, create_vector_store
 from docter_mcp.sandbox import Sandbox, fail
 
@@ -20,29 +24,36 @@ class IndexStore:
         digest = hashlib.sha1(str(sandbox.root).encode(), usedforsecurity=False).hexdigest()
         base = config.index_dir.expanduser().resolve()
         self.path = (base / digest).resolve()
-        for path in (
-            base,
-            self.path,
-            self.path / "symbols.sqlite3",
-            self.path / "vectors",
-            base / "models",
-        ):
+        database = self.path / "symbols.sqlite3"
+        sqlite = config.index_metadata_provider == "sqlite"
+        paths = [base, self.path, self.path / "vectors", base / "models"]
+        if sqlite:
+            paths.append(database)
+        for path in paths:
             resolved = path.resolve()
             if resolved.is_relative_to(sandbox.root) or not resolved.is_relative_to(base):
                 raise fail(
                     ErrorCode.PATH_OUTSIDE_REPO,
                     "Index storage must stay under index_dir and outside the target repo.",
                 )
-        database = self.path / "symbols.sqlite3"
-        if not create and not database.is_file():
+        if sqlite and not create and not database.is_file():
             raise fail(ErrorCode.NOT_INDEXED, "Run index_repo for this repository first.")
         if create:
             self.path.mkdir(parents=True, exist_ok=True)
         self.vectors = create_vector_store(config.index_vector_provider, self.path / "vectors")
-        self.metadata = create_index_metadata(config.index_metadata_provider, database)
-        if not create and self.metadata.active_generation is None:
+        self.metadata = create_index_metadata(
+            config.index_metadata_provider,
+            database,
+            url=config.index_metadata_url,
+            index_key=hashlib.sha256(str(self.path).encode()).hexdigest(),
+            create=create,
+        )
+        try:
+            if not create and self.metadata.active_generation is None:
+                raise fail(ErrorCode.NOT_INDEXED, "No completed index exists; run index_repo.")
+        except BaseException:
             self.metadata.close()
-            raise fail(ErrorCode.NOT_INDEXED, "No completed index exists; run index_repo.")
+            raise
 
     def __enter__(self) -> "IndexStore":
         return self
@@ -69,6 +80,10 @@ class IndexStore:
             self.vectors.stage(generation, chunks)
             self.metadata.publish(IndexGeneration(generation, model, self.VERSION), hashes, symbols)
             published = True
+        except MetadataPublishUncertainError:
+            # A lost commit response cannot tell us whether PostgreSQL points at these vectors.
+            published = True
+            raise
         finally:
             if generation and not published:
                 self.vectors.discard(generation)
