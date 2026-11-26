@@ -118,6 +118,8 @@ The shared contract's immutable protocol definitions remain unchanged.
 |---|---|---|
 | `DOCTER_INDEX_DIR` | `~/.docter/index` | Persistent index and local embedding-model cache; must be outside the target repo. |
 | `DOCSMITH_INDEX_DIR` | unset | Compatibility alias for `DOCTER_INDEX_DIR`; `DOCTER_INDEX_DIR` takes precedence. |
+| `DOCTER_INDEX_METADATA_PROVIDER` | `sqlite` | Index metadata provider; only `sqlite` is supported. |
+| `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | Index vector provider; only `lancedb` is supported. |
 | `DOCTER_EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | fastembed model name; changing it triggers a complete re-index. |
 | `DOCTER_ALLOWED_ROOTS` | unset | Optional comma-separated absolute paths; repos must resolve within one. |
 | `DOCSMITH_ALLOW_EXEC` | `false` | Opt into executing trusted repository examples (`true`/`false` or `1`/`0`). |

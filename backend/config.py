@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     frontend_dist_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     mcp_command: str = "uv run docter-mcp"
+    index_metadata_provider: Literal["sqlite"] = "sqlite"
+    index_vector_provider: Literal["lancedb"] = "lancedb"
 
     @field_validator("data_dir", "frontend_dist_dir", mode="after")
     @classmethod
@@ -112,6 +114,14 @@ class Settings(BaseSettings):
     def mcp_command_args(self) -> list[str]:
         """The MCP server command split into program and arguments (shell-style quoting)."""
         return shlex.split(self.mcp_command)
+
+    @property
+    def mcp_env(self) -> dict[str, str]:
+        """Additional environment variables explicitly forwarded to the MCP process."""
+        return {
+            "DOCTER_INDEX_METADATA_PROVIDER": self.index_metadata_provider,
+            "DOCTER_INDEX_VECTOR_PROVIDER": self.index_vector_provider,
+        }
 
     @property
     def db_path(self) -> Path:

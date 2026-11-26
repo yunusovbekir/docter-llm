@@ -59,6 +59,8 @@ fields. Define configuration on this class, not as module-level variables in con
 | `DOCTER_CORS_ORIGINS`      | `["http://localhost:5173"]`    | Allowed CORS origins, given as a JSON list          |
 | `DOCTER_FRONTEND_DIST_DIR` | `<repo>/frontend/dist`         | Directory containing the built Vue app              |
 | `DOCTER_MCP_COMMAND`       | `uv run docter-mcp`            | Command that starts the Docter MCP server (shell-style quoting) |
+| `DOCTER_INDEX_METADATA_PROVIDER` | `sqlite` | MCP index metadata provider; only `sqlite` is supported |
+| `DOCTER_INDEX_VECTOR_PROVIDER` | `lancedb` | MCP index vector provider; only `lancedb` is supported |
 
 ### Data directory layout
 
@@ -560,6 +562,11 @@ the lock. These locks are process-local: use a single backend worker.
 ## MCP client
 
 `MCPManager` (`mcp_client/manager.py`) runs the Docter MCP server as a subprocess, started with `DOCTER_MCP_COMMAND`, and talks to it over stdio with the official `mcp` SDK. Inject it with `MCPManagerDep` from `api/deps.py`.
+
+The backend explicitly passes the two index provider selectors to the subprocess,
+in addition to the MCP SDK's default environment. It does not pass
+`DOCTER_DATABASE_URL`, which configures only the application database. The
+selectors do not change the MCP server's existing local storage layout.
 
 - **Lifecycle:** one `ClientSession`, opened on first use and kept open by a background task that holds the transport in an `AsyncExitStack`. It is closed at app shutdown. The server's stderr is appended to `logs/mcp-server.log`.
 - **`list_tools()`:** returns the server's tools. The result is cached until the session is closed or restarted.

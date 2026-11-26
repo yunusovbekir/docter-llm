@@ -44,6 +44,13 @@ class IndexMetadata(Protocol):
     def close(self) -> None: ...
 
 
+def create_index_metadata(provider: str, database: Path) -> IndexMetadata:
+    """Open the selected metadata store."""
+    if provider == "sqlite":
+        return SQLiteIndexMetadata(database)
+    raise ValueError(f"Unsupported metadata provider {provider!r}; expected 'sqlite'.")
+
+
 class SQLiteIndexMetadata:
     """Store metadata in the existing version-1 SQLite layout."""
 

@@ -6,8 +6,8 @@ from uuid import uuid4
 
 from docter_contract import ErrorCode, GetSymbolOutput
 from docter_mcp.config import Config
-from docter_mcp.indexing.metadata import IndexGeneration, IndexMetadata, SQLiteIndexMetadata
-from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk, VectorStore
+from docter_mcp.indexing.metadata import IndexGeneration, create_index_metadata
+from docter_mcp.indexing.vectors import VectorChunk, create_vector_store
 from docter_mcp.sandbox import Sandbox, fail
 
 
@@ -38,11 +38,11 @@ class IndexStore:
             raise fail(ErrorCode.NOT_INDEXED, "Run index_repo for this repository first.")
         if create:
             self.path.mkdir(parents=True, exist_ok=True)
-        self.metadata: IndexMetadata = SQLiteIndexMetadata(database)
+        self.vectors = create_vector_store(config.index_vector_provider, self.path / "vectors")
+        self.metadata = create_index_metadata(config.index_metadata_provider, database)
         if not create and self.metadata.active_generation is None:
             self.metadata.close()
             raise fail(ErrorCode.NOT_INDEXED, "No completed index exists; run index_repo.")
-        self.vectors: VectorStore = LanceVectorStore(self.path / "vectors")
 
     def __enter__(self) -> "IndexStore":
         return self

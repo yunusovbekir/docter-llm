@@ -29,10 +29,10 @@ from docter_contract import (
 from docter_mcp.config import Config
 from docter_mcp.indexing import service
 from docter_mcp.indexing.chunks import doc_chunks
-from docter_mcp.indexing.metadata import IndexGeneration, SQLiteIndexMetadata
+from docter_mcp.indexing.metadata import IndexGeneration, create_index_metadata
 from docter_mcp.indexing.service import Embedder, get_symbol, index_repo, search_code
 from docter_mcp.indexing.store import IndexStore
-from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk
+from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk, create_vector_store
 from docter_mcp.parsing.python import PythonParser
 from docter_mcp.sandbox import Sandbox
 
@@ -369,8 +369,16 @@ async def test_failed_vector_stage_discards_only_unpublished_generation(
     assert search_code(query, config) == previous
 
 
+def test_factories_reject_unsupported_providers_without_creating_storage(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsupported metadata provider"):
+        create_index_metadata("lancedb", tmp_path / "symbols.sqlite3")
+    with pytest.raises(ValueError, match="Unsupported vector provider"):
+        create_vector_store("sqlite", tmp_path / "vectors")
+    assert not list(tmp_path.iterdir())
+
+
 def test_lance_scores_literal_candidate_ids(tmp_path: Path) -> None:
-    store = LanceVectorStore(tmp_path / "vectors")
+    store = create_vector_store("lancedb", tmp_path / "vectors")
     first = doc_chunks("it's.md", "# Title\ntext\n")[0]
     second = doc_chunks("other.md", "# Other\ntext\n")[0]
     target_id = "it's.md:section:1"
@@ -422,7 +430,7 @@ def test_metadata_reads_and_updates_version_one_database(tmp_path: Path) -> None
         db.commit()
         schema = db.execute("SELECT * FROM sqlite_schema ORDER BY name").fetchall()
 
-    metadata = SQLiteIndexMetadata(database)
+    metadata = create_index_metadata("sqlite", database)
     try:
         assert metadata.active_generation == IndexGeneration("chunks_existing", "m", "1")
         assert metadata.file_hashes() == {"a.py": "hash"}
