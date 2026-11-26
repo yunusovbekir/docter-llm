@@ -1,16 +1,13 @@
-"""SQLite manifests and immutable LanceDB generations, published together."""
+"""Publish index metadata only after staging an immutable vector generation."""
 
 import hashlib
 from types import TracebackType
-from typing import Any
 from uuid import uuid4
-
-import lancedb
-from lancedb.table import Table
 
 from docter_contract import ErrorCode, GetSymbolOutput
 from docter_mcp.config import Config
 from docter_mcp.indexing.metadata import IndexGeneration, IndexMetadata, SQLiteIndexMetadata
+from docter_mcp.indexing.vectors import LanceVectorStore, VectorChunk, VectorStore
 from docter_mcp.sandbox import Sandbox, fail
 
 
@@ -45,6 +42,7 @@ class IndexStore:
         if not create and self.metadata.active_generation is None:
             self.metadata.close()
             raise fail(ErrorCode.NOT_INDEXED, "No completed index exists; run index_repo.")
+        self.vectors: VectorStore = LanceVectorStore(self.path / "vectors")
 
     def __enter__(self) -> "IndexStore":
         return self
@@ -57,29 +55,20 @@ class IndexStore:
     ) -> None:
         self.metadata.close()
 
-    def table(self) -> Table | None:
-        """Open the published vectors; a successfully indexed empty repo has no table."""
-        generation = self.metadata.active_generation
-        if generation is None or not generation.name:
-            return None
-        return lancedb.connect(self.path / "vectors").open_table(generation.name)
-
     def publish(
         self,
         hashes: dict[str, str],
         symbols: list[GetSymbolOutput],
-        rows: list[dict[str, Any]],
+        chunks: list[VectorChunk],
         model: str,
     ) -> None:
         """Write vectors first, then atomically commit their manifest and symbol metadata."""
-        connection = lancedb.connect(self.path / "vectors")
-        generation = f"chunks_{uuid4().hex}" if rows else ""
-        if generation:
-            connection.create_table(generation, rows)
+        generation = f"chunks_{uuid4().hex}" if chunks else ""
         published = False
         try:
+            self.vectors.stage(generation, chunks)
             self.metadata.publish(IndexGeneration(generation, model, self.VERSION), hashes, symbols)
             published = True
         finally:
             if generation and not published:
-                connection.drop_table(generation)
+                self.vectors.discard(generation)

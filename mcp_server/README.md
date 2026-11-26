@@ -194,7 +194,8 @@ fastembed runs locally; its first use may download the configured model. Model f
 are cached under `<index_dir>/models`. SQLite stores file content hashes and symbol
 metadata in `<index_dir>/<sha1(canonical_repo_path)>/symbols.sqlite3`; LanceDB vectors
 live alongside it in `vectors/`. SQLite is the only implementation of the internal
-index metadata interface; existing indexes need no migration. A refresh reuses
+index metadata interface, and LanceDB is the only implementation of the vector
+store interface. Existing indexes need no migration. A refresh reuses
 unchanged symbols and vectors, embeds only changed/new files, and removes deleted
 or newly ignored files from the active index.
 `force=true` reparses and re-embeds every eligible file. `files_indexed` counts processed

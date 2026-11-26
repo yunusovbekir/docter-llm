@@ -3,15 +3,11 @@
 import hashlib
 import logging
 import time
-from collections.abc import Iterable
 from pathlib import PurePosixPath
-from typing import Any, Protocol
+from typing import Protocol
 
 import anyio
 from fastembed import TextEmbedding
-from lancedb.query import LanceVectorQueryBuilder
-from lancedb.table import Table
-from mcp.server.mcpserver.exceptions import ToolError
 
 from docter_contract import (
     ErrorCode,
@@ -27,6 +23,7 @@ from docter_contract import (
 from docter_mcp.config import Config
 from docter_mcp.indexing.chunks import doc_chunks
 from docter_mcp.indexing.store import IndexStore
+from docter_mcp.indexing.vectors import VectorChunk
 from docter_mcp.parsing.python import PythonParser
 from docter_mcp.sandbox import Sandbox, fail
 
@@ -126,10 +123,9 @@ async def index_repo(
                 chunks.extend(pieces)
             await _progress(ctx, number, total, f"Scanned {path}")
         retained = set(hashes) - changed
-        old_table = None if rebuild else store.table()
-        rows: list[dict[str, Any]] = (
-            [row for row in old_table.to_arrow().to_pylist() if row["file"] in retained]
-            if old_table is not None
+        embedded = (
+            store.vectors.reuse(generation.name, retained)
+            if not rebuild and generation is not None and generation.name
             else []
         )
         if not rebuild:
@@ -141,23 +137,17 @@ async def index_repo(
                 [f"{chunk.qualname or chunk.file}\n{chunk.snippet}" for chunk in chunks],
             )
             for chunk, vector in zip(chunks, vectors, strict=True):
-                rows.append(
-                    {
-                        "id": f"{chunk.file}:{chunk.qualname or f'section:{chunk.start_line}'}",
-                        **chunk.model_dump(exclude={"score"}),
-                        "qualname": chunk.qualname or "",
-                        "vector": vector,
-                    }
-                )
+                identifier = f"{chunk.file}:{chunk.qualname or f'section:{chunk.start_line}'}"
+                embedded.append(VectorChunk(identifier, chunk, vector))
         if rebuild or changed or set(previous) != set(hashes):
             await anyio.to_thread.run_sync(
-                store.publish, hashes, symbols, rows, config.embedding_model
+                store.publish, hashes, symbols, embedded, config.embedding_model
             )
         await _progress(ctx, total, total, "Index ready")
         return IndexRepoOutput(
             files_indexed=len(changed),
             symbols=len(symbols),
-            chunks=len(rows),
+            chunks=len(embedded),
             duration_ms=int((time.monotonic() - started) * 1000),
         )
 
@@ -169,29 +159,6 @@ def _boost(qualname: str, query: str) -> float:
     return 1.0 if query in name else 0.0
 
 
-def _hits(rows: Iterable[dict[str, Any]], query: str) -> list[SearchHit]:
-    unique = {row["id"]: row for row in rows}
-    return [
-        SearchHit(
-            file=row["file"],
-            qualname=row["qualname"] or None,
-            kind=row["kind"],
-            start_line=row["start_line"],
-            end_line=row["end_line"],
-            snippet=row["snippet"],
-            score=1.0 - float(row["_distance"]) + _boost(row["qualname"], query),
-        )
-        for row in unique.values()
-    ]
-
-
-def _vector_search(table: Table, vector: list[float]) -> LanceVectorQueryBuilder:
-    builder = table.search(vector, query_type="vector")
-    if not isinstance(builder, LanceVectorQueryBuilder):
-        raise ToolError("LanceDB did not create a vector search query.")
-    return builder.distance_type("cosine")
-
-
 def search_code(request: SearchCodeInput, config: Config) -> SearchCodeOutput:
     """Combine cosine similarity with exact/partial symbol-name candidate boosting."""
     sandbox = Sandbox(request.repo, config.allowed_roots)
@@ -199,29 +166,20 @@ def search_code(request: SearchCodeInput, config: Config) -> SearchCodeOutput:
         generation = store.metadata.active_generation
         if generation is None or generation.model != config.embedding_model:
             raise fail(ErrorCode.NOT_INDEXED, "Embedding model changed; run index_repo again.")
-        table = store.table()
-        if table is None:
+        if not generation.name:
             return SearchCodeOutput(results=[])
         vector = Embedder(config).query(request.query)
         query = request.query.casefold()
-        condition = f"kind = '{request.kind.value}'" if request.kind is not None else "true"
-        rows = (
-            _vector_search(table, vector)
-            .where(condition, prefilter=True)
-            .limit(request.k * 4)
-            .to_list()
-        )
+        matches = store.vectors.search(generation.name, vector, request.kind, request.k * 4)
         # Lexical candidates must be considered even when absent from the vector top-k.
         candidates = store.metadata.lexical_candidates(query, request.kind, request.k * 4)
         if candidates:
-            ids = ", ".join("'" + item.replace("'", "''") + "'" for item in candidates)
-            rows.extend(
-                _vector_search(table, vector)
-                .where(f"id IN ({ids})", prefilter=True)
-                .limit(len(candidates))
-                .to_list()
-            )
-        hits = _hits(rows, query)
+            matches.extend(store.vectors.score_ids(generation.name, vector, candidates))
+        unique = {match.id: match.hit for match in matches}
+        hits = [
+            hit.model_copy(update={"score": hit.score + _boost(hit.qualname or "", query)})
+            for hit in unique.values()
+        ]
         hits.sort(key=lambda hit: (-hit.score, hit.file, hit.start_line, hit.qualname or ""))
         return SearchCodeOutput(results=hits[: request.k])
 
