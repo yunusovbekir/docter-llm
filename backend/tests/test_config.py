@@ -121,6 +121,35 @@ def test_postgres_metadata_url_is_separate_and_forwarded_only_for_postgres(
         Settings()
 
 
+def test_pgvector_url_is_independent_and_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DOCTER_DATABASE_URL", "postgresql+psycopg://localhost/app")
+    monkeypatch.setenv("DOCTER_INDEX_METADATA_URL", "postgresql://localhost/metadata")
+    monkeypatch.setenv("DOCTER_INDEX_VECTOR_PROVIDER", "pgvector")
+    with pytest.raises(ValidationError, match="requires DOCTER_INDEX_VECTOR_URL"):
+        Settings()
+
+    # An invalid scheme must not leak the URL either.
+    secret = "test-vector-password"
+    monkeypatch.setenv("DOCTER_INDEX_VECTOR_URL", f"https://role:{secret}@localhost/vectors")
+    with pytest.raises(ValidationError, match="requires DOCTER_INDEX_VECTOR_URL") as caught:
+        Settings()
+    assert secret not in str(caught.value)
+
+    url = f"postgresql://role:{secret}@localhost/vectors"
+    monkeypatch.setenv("DOCTER_INDEX_VECTOR_URL", url)
+    settings = Settings()
+    assert settings.mcp_env == {
+        "DOCTER_INDEX_METADATA_PROVIDER": "sqlite",
+        "DOCTER_INDEX_VECTOR_PROVIDER": "pgvector",
+        "DOCTER_INDEX_VECTOR_URL": url,
+    }
+    assert secret not in repr(settings)
+    assert "index_vector_url" not in settings.model_dump()
+
+    monkeypatch.setenv("DOCTER_INDEX_VECTOR_PROVIDER", "lancedb")
+    assert "DOCTER_INDEX_VECTOR_URL" not in Settings().mcp_env
+
+
 def test_fixed_configuration_is_not_loaded_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

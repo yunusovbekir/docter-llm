@@ -1,6 +1,7 @@
 """Publish index metadata only after staging an immutable vector generation."""
 
 import hashlib
+import logging
 from types import TracebackType
 from uuid import uuid4
 
@@ -26,7 +27,9 @@ class IndexStore:
         self.path = (base / digest).resolve()
         database = self.path / "symbols.sqlite3"
         sqlite = config.index_metadata_provider == "sqlite"
-        paths = [base, self.path, self.path / "vectors", base / "models"]
+        paths = [base, self.path, base / "models"]
+        if config.index_vector_provider == "lancedb":
+            paths.append(self.path / "vectors")
         if sqlite:
             paths.append(database)
         for path in paths:
@@ -40,7 +43,9 @@ class IndexStore:
             raise fail(ErrorCode.NOT_INDEXED, "Run index_repo for this repository first.")
         if create:
             self.path.mkdir(parents=True, exist_ok=True)
-        self.vectors = create_vector_store(config.index_vector_provider, self.path / "vectors")
+        self.vectors = create_vector_store(
+            config.index_vector_provider, self.path / "vectors", url=config.index_vector_url
+        )
         self.metadata = create_index_metadata(
             config.index_metadata_provider,
             database,
@@ -75,15 +80,20 @@ class IndexStore:
     ) -> None:
         """Write vectors first, then atomically commit their manifest and symbol metadata."""
         generation = f"chunks_{uuid4().hex}" if chunks else ""
-        published = False
         try:
             self.vectors.stage(generation, chunks)
             self.metadata.publish(IndexGeneration(generation, model, self.VERSION), hashes, symbols)
-            published = True
         except MetadataPublishUncertainError:
             # A lost commit response cannot tell us whether PostgreSQL points at these vectors.
-            published = True
             raise
-        finally:
-            if generation and not published:
-                self.vectors.discard(generation)
+        except BaseException:
+            if generation:
+                try:
+                    self.vectors.discard(generation)
+                except Exception as cleanup_error:
+                    logging.getLogger(__name__).warning(
+                        "Could not discard unpublished vector generation %s (%s)",
+                        generation,
+                        type(cleanup_error).__name__,
+                    )
+            raise

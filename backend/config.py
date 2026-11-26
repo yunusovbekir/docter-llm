@@ -80,11 +80,12 @@ class Settings(BaseSettings):
     frontend_dist_dir: Path = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     mcp_command: str = "uv run docter-mcp"
     index_metadata_provider: Literal["sqlite", "postgres"] = "sqlite"
-    index_vector_provider: Literal["lancedb"] = "lancedb"
+    index_vector_provider: Literal["lancedb", "pgvector"] = "lancedb"
     index_metadata_url: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    index_vector_url: SecretStr | None = Field(default=None, repr=False, exclude=True)
 
     @model_validator(mode="after")
-    def _check_index_metadata_url(self) -> "Settings":
+    def _check_index_urls(self) -> "Settings":
         if self.index_metadata_provider == "postgres" and (
             self.index_metadata_url is None
             or not self.index_metadata_url.get_secret_value().startswith(
@@ -93,6 +94,16 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "The postgres metadata provider requires DOCTER_INDEX_METADATA_URL "
+                "with a postgresql:// or postgres:// scheme."
+            )
+        if self.index_vector_provider == "pgvector" and (
+            self.index_vector_url is None
+            or not self.index_vector_url.get_secret_value().startswith(
+                ("postgresql://", "postgres://")
+            )
+        ):
+            raise ValueError(
+                "The pgvector provider requires DOCTER_INDEX_VECTOR_URL "
                 "with a postgresql:// or postgres:// scheme."
             )
         return self
@@ -139,6 +150,8 @@ class Settings(BaseSettings):
         }
         if self.index_metadata_provider == "postgres" and self.index_metadata_url is not None:
             env["DOCTER_INDEX_METADATA_URL"] = self.index_metadata_url.get_secret_value()
+        if self.index_vector_provider == "pgvector" and self.index_vector_url is not None:
+            env["DOCTER_INDEX_VECTOR_URL"] = self.index_vector_url.get_secret_value()
         return env
 
     @property
